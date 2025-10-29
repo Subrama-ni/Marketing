@@ -1,0 +1,187 @@
+:root {
+  --primary-color: #e91e63; /* pink */
+  --secondary-color: #f8bbd0; /* light pink */
+  --accent-color: #f48fb1; /* softer pink */
+  --bg-color: #fff0f6; /* very light pink */
+  --card-bg: #ffffff;
+  --text-color: #1b262c;
+  --subtext-color: #5a5a5a;
+}
+
+/* App container */
+.app {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-color);
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background-color: var(--primary-color);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed {
+  width: 60px;
+  min-width: 60px;
+}
+
+/* Sidebar header */
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+/* Sidebar links */
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.sidebar-link:hover {
+  background-color: rgba(255,255,255,0.1);
+}
+
+.sidebar-link .icon {
+  margin-right: 12px;
+  font-size: 1.2rem;
+}
+
+.sidebar-link.active {
+  background-color: var(--secondary-color);
+  color: #000;
+  font-weight: 600;
+}
+
+/* Tooltip for collapsed sidebar */
+.sidebar.collapsed .sidebar-link .label {
+  display: none;
+}
+.sidebar.collapsed .sidebar-link[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  left: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #fff;
+  color: #000;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  z-index: 100;
+}
+
+/* Main container including Topbar + Content */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Topbar */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background-color: var(--secondary-color);
+  color: #000;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  flex-shrink: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+/* Scrollable content */
+.content {
+  flex: 1;
+  padding: 20px;
+  background-color: var(--bg-color);
+  overflow-y: auto;
+}
+
+/* Card */
+.card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  margin-bottom: 20px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+}
+
+/* Tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+.table th, .table td {
+  padding: 10px 12px;
+  text-align: left;
+}
+.table th {
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: 6px;
+}
+.table tr:nth-child(even) {
+  background: var(--secondary-color);
+}
+.table tr:hover {
+  background: var(--accent-color);
+}
+
+/* Buttons */
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--primary-color);
+  color: var(--primary-color);
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.btn.ghost:hover {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+/* Scrollbar */
+.content::-webkit-scrollbar {
+  width: 8px;
+}
+.content::-webkit-scrollbar-thumb {
+  background-color: var(--primary-color);
+  border-radius: 4px;
+}
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
