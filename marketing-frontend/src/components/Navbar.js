@@ -1,18 +1,69 @@
-import React from 'react';
-import { AppBar, Toolbar, Button, Typography } from '@mui/material';
+// src/components/Navbar.js
+import React from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
-export default function Navbar({ setPage }) {
+export default function Navbar() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
   return (
-    <AppBar position="static">
-      <Toolbar>
-        <Typography variant="h6" sx={{ flexGrow: 1 }}>
-          Marketing Management
-        </Typography>
-        <Button color="inherit" onClick={() => setPage('dashboard')}>Dashboard</Button>
-        <Button color="inherit" onClick={() => setPage('customers')}>Customers</Button>
-        <Button color="inherit" onClick={() => setPage('entries')}>Entries</Button>
-        <Button color="inherit" onClick={() => setPage('payments')}>Payments</Button>
-      </Toolbar>
-    </AppBar>
+    <nav
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "14px 24px",
+        background: "linear-gradient(90deg, #2c3e50, #34495e)",
+        color: "white",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
+        <h2 style={{ margin: 0 }}>💼 Smart Billing</h2>
+        <Link to="/" style={{ color: "white", textDecoration: "none" }}>
+          Dashboard
+        </Link>
+        {user && (
+          <Link to="/payments" style={{ color: "white", textDecoration: "none" }}>
+            Payments
+          </Link>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        {user ? (
+          <>
+            <span>👋 {user.name || user.email}</span>
+            <button
+              onClick={handleLogout}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                background: "#e74c3c",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <>
+            <Link to="/login" style={{ color: "white" }}>
+              Login
+            </Link>
+            <Link to="/register" style={{ color: "white" }}>
+              Register
+            </Link>
+          </>
+        )}
+      </div>
+    </nav>
   );
 }

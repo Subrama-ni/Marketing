@@ -1,61 +1,82 @@
 import React from "react";
-import { NavLink } from "react-router-dom";
-import { FaTachometerAlt, FaUsers, FaListAlt, FaMoneyBillAlt } from "react-icons/fa";
-import './Sidebar.css'; // Reuse the same CSS
+import { NavLink, useNavigate } from "react-router-dom";
+import {
+  FaTachometerAlt,
+  FaUsers,
+  FaListAlt,
+  FaMoneyBillAlt,
+  FaSignOutAlt,
+  FaSun,
+  FaMoon,
+} from "react-icons/fa";
+import { useAuth } from "../context/AuthContext";
+import "./Sidebar.css";
 
-export default function Sidebar({ collapsed, setCollapsed }) {
+export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
 
   const links = [
-    { to: "/", label: "Dashboard", icon: <FaTachometerAlt /> },
+    { to: "/dashboard", label: "Dashboard", icon: <FaTachometerAlt /> },
     { to: "/customers", label: "Customers", icon: <FaUsers /> },
     { to: "/entries", label: "Entries", icon: <FaListAlt /> },
     { to: "/payments", label: "Payments", icon: <FaMoneyBillAlt /> },
   ];
 
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
   return (
     <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+      {/* Header */}
       <div className="sidebar-header">
-        {!collapsed && <h2 style={{color:'#3d8361'}}>MyApp</h2>}
-        <button 
-          className="toggle-btn" 
+        {!collapsed && <h2 className="sidebar-title">MyApp</h2>}
+        <button
+          className="toggle-btn"
           onClick={() => setCollapsed(!collapsed)}
-          style={{
-            background:'transparent',
-            border:'none',
-            cursor:'pointer',
-            fontSize:'1.3rem',
-            color:'#3d8361'
-          }}
+          aria-label="Toggle sidebar"
         >
           {collapsed ? "☰" : "✕"}
         </button>
       </div>
-      <nav>
-        {links.map(link => (
+
+      {/* Navigation */}
+      <nav className="sidebar-nav">
+        {links.map((link) => (
           <NavLink
             key={link.to}
             to={link.to}
-            className={({ isActive }) => 
-              `sidebar-link ${isActive ? 'active' : ''}`
+            className={({ isActive }) =>
+              `sidebar-link ${isActive ? "active" : ""}`
             }
             title={collapsed ? link.label : ""}
-            style={{
-              display:'flex',
-              alignItems:'center',
-              gap:'12px',
-              padding:'12px 16px',
-              margin:'4px 8px',
-              borderRadius:'8px',
-              color:'#1b262c',
-              textDecoration:'none',
-              transition:'all 0.2s'
-            }}
           >
-            <span className="icon" style={{fontSize:'1.2rem', color:'#3d8361'}}>{link.icon}</span>
-            {!collapsed && <span className="label" style={{fontWeight:500}}>{link.label}</span>}
+            <span className="icon">{link.icon}</span>
+            {!collapsed && <span className="label">{link.label}</span>}
           </NavLink>
         ))}
       </nav>
+
+      {/* Footer */}
+      <div className="sidebar-footer">
+        <button className="theme-toggle" onClick={toggleTheme}>
+          {theme === "light" ? <FaMoon /> : <FaSun />}
+          {!collapsed && (
+            <span>{theme === "light" ? "Dark Mode" : "Light Mode"}</span>
+          )}
+        </button>
+
+        <button className="logout-btn" onClick={handleLogout}>
+          <FaSignOutAlt className="icon" />
+          {!collapsed && <span>Logout</span>}
+        </button>
+
+        {!collapsed && (
+          <small className="footer-text">© {new Date().getFullYear()} MyApp</small>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,65 +1,61 @@
 import pool from '../db.js';
 
-// Create customer (prevent duplicate serial)
+// ✅ Create Customer
 export const createCustomer = async (req, res) => {
   try {
-    const { name, phone, serial } = req.body;
-    if (!name || serial === undefined || serial === null) {
-      return res.status(400).json({ message: 'Name and serial required' });
-    }
-
-    const { rows: existing } = await pool.query('SELECT id FROM customers WHERE serial=$1', [serial]);
-    if (existing.length) return res.status(400).json({ message: 'Serial already exists' });
+    const { name, phone } = req.body;
+    if (!name) return res.status(400).json({ message: 'Name is required' });
 
     const { rows } = await pool.query(
-      'INSERT INTO customers (name, phone, serial) VALUES ($1,$2,$3) RETURNING *',
-      [name, phone || null, serial]
+      'INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING *',
+      [name, phone || null]
     );
+
     res.status(201).json(rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error creating customer:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
+// ✅ Get all customers
 export const getCustomers = async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM customers ORDER BY serial ASC');
+    const { rows } = await pool.query('SELECT * FROM customers ORDER BY id ASC');
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error fetching customers:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
+// ✅ Update customer
 export const updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, phone, serial } = req.body;
-    if (!name || serial === undefined || serial === null) return res.status(400).json({ message: 'Name & serial required' });
-
-    // check serial uniqueness
-    const { rows: conflict } = await pool.query('SELECT id FROM customers WHERE serial=$1 AND id<>$2', [serial, id]);
-    if (conflict.length) return res.status(400).json({ message: 'Serial already used' });
+    const { name, phone } = req.body;
+    if (!name) return res.status(400).json({ message: 'Name is required' });
 
     const { rows } = await pool.query(
-      'UPDATE customers SET name=$1, phone=$2, serial=$3 WHERE id=$4 RETURNING *',
-      [name, phone || null, serial, id]
+      'UPDATE customers SET name=$1, phone=$2 WHERE id=$3 RETURNING *',
+      [name, phone || null, id]
     );
+
     res.json(rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error updating customer:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
+// ✅ Delete customer
 export const deleteCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM customers WHERE id=$1', [id]);
-    res.json({ message: 'Deleted' });
+    res.json({ message: 'Customer deleted' });
   } catch (err) {
-    console.error(err);
+    console.error('❌ Error deleting customer:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
