@@ -4,30 +4,48 @@ import dotenv from 'dotenv';
 import path from 'path';
 import pkg from 'pg';
 
+// 🧩 Routes
 import customerRoutes from './routes/customerRoutes.js';
 import entryRoutes from './routes/entryRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
-import authRoutes from './routes/authRoutes.js'; // ✅ Added auth route
+import authRoutes from './routes/authRoutes.js'; // ✅ Authentication route
 
 dotenv.config();
 
 const { Pool } = pkg;
+
+// ✅ Configure PostgreSQL connection (Render & Local)
+const isProduction = process.env.NODE_ENV === 'production';
+
 const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ||
     'postgres://postgres:yourpassword@localhost:5432/marketing',
+  ssl: isProduction
+    ? { rejectUnauthorized: false } // required for Render’s Postgres
+    : false,
 });
 
 const app = express();
-app.use(cors());
+
+/* ✅ CORS Setup */
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((url) => url.trim())
+  : ['http://localhost:4001']; // your React dev port
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
-/**
- * ✅ Initialize Database Tables
- */
+/* ✅ Database Initialization */
 async function initDB() {
   try {
-    // 🧍 Users Table (for authentication)
+    // 🧍 Users Table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -86,24 +104,31 @@ async function initDB() {
 
 await initDB();
 
-/**
- * ✅ API Routes
- */
-app.use('/api/auth', authRoutes); // 🔐 Authentication routes
+/* ✅ API Routes */
+app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/payments', paymentRoutes);
 
-/**
- * ✅ Serve generated PDF bills
- */
+/* ✅ Health Check (for Render uptime monitoring) */
+app.get('/healthz', (req, res) => {
+  res.status(200).send('OK ✅');
+});
+
+/* ✅ Serve generated PDF bills */
 const __dirname = path.resolve();
 app.use('/bills', express.static(path.join(__dirname, 'bills')));
 
-/**
- * ✅ Start Server
- */
+/* ✅ Global Error Handler (optional but good practice) */
+app.use((err, req, res, next) => {
+  console.error('🔥 Server error:', err);
+  res.status(500).json({ message: 'Internal Server Error' });
+});
+
+/* ✅ Start Server */
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () =>
+  console.log(`🚀 Server running on port ${PORT}`)
+);
 
 export default pool;
