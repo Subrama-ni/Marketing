@@ -14,7 +14,9 @@ import EntriesPage from "./pages/EntriesPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import Sidebar from "./components/Sidebar";
 import "./App.css";
-import { ToastContainer } from "react-toastify";
+
+// Toastify
+import { ToastContainer, Slide } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 /** ✅ ProtectedRoute */
@@ -91,8 +93,10 @@ function DashboardLayout() {
         theme={theme}
         toggleTheme={toggleTheme}
       />
+
       <div className={`dashboard-container ${collapsed ? "collapsed" : ""}`}>
         <Topbar theme={theme} toggleTheme={toggleTheme} />
+
         <div className="main-content">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
@@ -129,17 +133,20 @@ export default function App() {
           {/* Default Redirect */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
+
+        {/* ✅ Global Toastify with Slide Animation */}
+        <ToastContainer
+          position="top-right"
+          autoClose={2500}
+          hideProgressBar={false}
+          newestOnTop={false}
+          closeOnClick
+          pauseOnHover
+          draggable
+          theme="colored"
+          transition={Slide}
+        />
       </Router>
     </AuthProvider>
   );
 }
- <ToastContainer
-        position="top-right"
-        autoClose={2500}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        pauseOnHover
-        draggable
-        theme="colored"
-      />
