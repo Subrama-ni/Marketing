@@ -12,6 +12,13 @@ export default function CustomersPage({ onSelectCustomer }) {
   const [form, setForm] = useState({ name: "", phone: "", serial: "" });
   const [editingId, setEditingId] = useState(null);
 
+  // Validation state
+  const [errors, setErrors] = useState({
+    name: "",
+    serial: "",
+    phone: "",
+  });
+
   const fetch = async () => {
     try {
       const res = await getCustomers();
@@ -26,11 +33,66 @@ export default function CustomersPage({ onSelectCustomer }) {
     fetch();
   }, []);
 
+  /* ---------------------------------------------------
+     LIVE VALIDATION
+  ----------------------------------------------------- */
+  const validateField = (field, value) => {
+    let message = "";
+
+    if (field === "name") {
+      if (!value.trim()) message = "Name is required";
+    }
+
+    if (field === "serial") {
+      if (!value) message = "Serial number is required";
+      else if (isNaN(value)) message = "Serial must be a number";
+      else {
+        const exists = customers.some(
+          (c) => c.serial === Number(value) && c.id !== editingId
+        );
+        if (exists) message = "Serial number already exists";
+      }
+    }
+
+    if (field === "phone") {
+      if (value.trim() !== "") {
+        if (!/^[0-9]{10}$/.test(value))
+          message = "Phone must be a 10-digit number";
+
+        const exists = customers.some(
+          (c) => c.phone === value && c.id !== editingId
+        );
+        if (exists) message = "Phone number already exists";
+      }
+    }
+
+    setErrors((prev) => ({ ...prev, [field]: message }));
+  };
+
+  const handleInput = (field, value) => {
+    setForm((p) => ({ ...p, [field]: value }));
+    validateField(field, value);
+  };
+
+  /* ---------------------------------------------------
+     FORM SUBMIT
+  ----------------------------------------------------- */
+  const isFormValid = () => {
+    return (
+      form.name.trim() &&
+      form.serial &&
+      !errors.serial &&
+      !errors.phone &&
+      !errors.name
+    );
+  };
+
   const submit = async (e) => {
     e.preventDefault();
 
-    if (!form.name || form.serial === "") {
-      toast.warn("Name & Serial are required");
+    // Final validation before save
+    if (!isFormValid()) {
+      toast.error("Fix validation errors before saving");
       return;
     }
 
@@ -55,20 +117,25 @@ export default function CustomersPage({ onSelectCustomer }) {
       setEditingId(null);
       fetch();
     } catch (err) {
-      toast.error(
-        err.response?.data?.message || "Error saving customer"
-      );
+      toast.error(err.response?.data?.message || "Error saving customer");
     }
   };
 
+  /* ---------------------------------------------------
+     EDIT + DELETE
+  ----------------------------------------------------- */
   const startEdit = (c) => {
     setEditingId(c.id);
-    setForm({ name: c.name, phone: c.phone || "", serial: c.serial });
+    setForm({
+      name: c.name,
+      phone: c.phone || "",
+      serial: c.serial,
+    });
+    setErrors({ name: "", serial: "", phone: "" });
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete customer?")) return;
-
     try {
       await deleteCustomer(id);
       toast.success("Customer deleted");
@@ -78,6 +145,10 @@ export default function CustomersPage({ onSelectCustomer }) {
     }
   };
 
+  /* ---------------------------------------------------
+     UI
+  ----------------------------------------------------- */
+
   return (
     <div className="col">
       <div className="card">
@@ -85,31 +156,50 @@ export default function CustomersPage({ onSelectCustomer }) {
 
         <form onSubmit={submit}>
           <div className="form-row">
-            <input
-              className="input"
-              placeholder="Name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
+            {/* NAME */}
+            <div className="field">
+              <input
+                className="input"
+                placeholder="Name"
+                value={form.name}
+                onChange={(e) => handleInput("name", e.target.value)}
+              />
+              {errors.name && <div className="error-text">{errors.name}</div>}
+            </div>
 
-            <input
-              className="input"
-              placeholder="Phone"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
+            {/* PHONE */}
+            <div className="field">
+              <input
+                className="input"
+                placeholder="Phone"
+                value={form.phone}
+                onChange={(e) => handleInput("phone", e.target.value)}
+              />
+              {errors.phone && (
+                <div className="error-text">{errors.phone}</div>
+              )}
+            </div>
 
-            <input
-              className="input small"
-              placeholder="Serial"
-              type="number"
-              value={form.serial}
-              onChange={(e) =>
-                setForm({ ...form, serial: e.target.value })
-              }
-            />
+            {/* SERIAL */}
+            <div className="field">
+              <input
+                className="input small"
+                placeholder="Serial"
+                type="number"
+                value={form.serial}
+                onChange={(e) => handleInput("serial", e.target.value)}
+              />
+              {errors.serial && (
+                <div className="error-text">{errors.serial}</div>
+              )}
+            </div>
 
-            <button className="btn" type="submit">
+            <button
+              className="btn"
+              type="submit"
+              disabled={!isFormValid()}
+              style={{ opacity: isFormValid() ? 1 : 0.5 }}
+            >
               {editingId ? "Update" : "Create"}
             </button>
 
@@ -120,6 +210,7 @@ export default function CustomersPage({ onSelectCustomer }) {
                 onClick={() => {
                   setEditingId(null);
                   setForm({ name: "", phone: "", serial: "" });
+                  setErrors({ name: "", serial: "", phone: "" });
                 }}
               >
                 Cancel
@@ -129,6 +220,7 @@ export default function CustomersPage({ onSelectCustomer }) {
         </form>
       </div>
 
+      {/* CUSTOMER LIST */}
       <div className="card" style={{ marginTop: 12 }}>
         <h2>Customers</h2>
 
@@ -145,17 +237,13 @@ export default function CustomersPage({ onSelectCustomer }) {
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   className="btn ghost"
-                  onClick={() =>
-                    onSelectCustomer && onSelectCustomer(c)
-                  }
+                  onClick={() => onSelectCustomer && onSelectCustomer(c)}
                 >
                   Open
                 </button>
-
                 <button className="btn" onClick={() => startEdit(c)}>
                   Edit
                 </button>
-
                 <button
                   className="btn ghost"
                   onClick={() => handleDelete(c.id)}
