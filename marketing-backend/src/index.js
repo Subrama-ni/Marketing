@@ -14,16 +14,14 @@ dotenv.config();
 
 const { Pool } = pkg;
 
-// ✅ Configure PostgreSQL connection (Render & Local)
+// ✅ PostgreSQL Connection
 const isProduction = process.env.NODE_ENV === 'production';
 
 const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ||
     'postgres://postgres:yourpassword@localhost:5432/marketing',
-  ssl: isProduction
-    ? { rejectUnauthorized: false } // required for Render’s Postgres
-    : false,
+  ssl: isProduction ? { rejectUnauthorized: false } : false,
 });
 
 const app = express();
@@ -42,20 +40,9 @@ app.use(
 
 app.use(express.json());
 
-/* ✅ Database Initialization */
+/* ✅ Initialize Database */
 async function initDB() {
   try {
-    // 🧍 Users Table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(150) UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
     // 👥 Customers Table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS customers (
@@ -67,28 +54,32 @@ async function initDB() {
       );
     `);
 
-    // 📦 Entries Table
+    // 📦 Entries Table (with item_name and bags)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id SERIAL PRIMARY KEY,
         customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
         entry_date TIMESTAMP NOT NULL,
+        item_name TEXT,
+        bags NUMERIC(10,2) DEFAULT 0,
         kgs NUMERIC(10,2),
         rate NUMERIC(10,2),
         commission NUMERIC(10,2) DEFAULT 0,
         amount NUMERIC(12,2) DEFAULT 0,
         paid_amount NUMERIC(12,2) DEFAULT 0,
+        remaining NUMERIC(12,2) DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // 💸 Payments Table
+    // 💰 Payments Table (supports bag payment)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY,
         customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
         amount NUMERIC(12,2) NOT NULL,
         mode TEXT,
+        bag_amount NUMERIC(12,2) DEFAULT 0,
         from_date TIMESTAMP,
         to_date TIMESTAMP,
         payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -96,7 +87,18 @@ async function initDB() {
       );
     `);
 
-    console.log('✅ Database tables ready');
+    // 🧍 Users Table (for login/register)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(150) UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    console.log('✅ Database tables initialized successfully');
   } catch (err) {
     console.error('❌ initDB error:', err);
   }
@@ -110,16 +112,14 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/payments', paymentRoutes);
 
-/* ✅ Health Check (for Render uptime monitoring) */
-app.get('/healthz', (req, res) => {
-  res.status(200).send('OK ✅');
-});
+/* ✅ Health Check (for Render) */
+app.get('/healthz', (req, res) => res.status(200).send('OK ✅'));
 
-/* ✅ Serve generated PDF bills */
+/* ✅ Serve bills (PDFs) */
 const __dirname = path.resolve();
 app.use('/bills', express.static(path.join(__dirname, 'bills')));
 
-/* ✅ Global Error Handler (optional but good practice) */
+/* ✅ Global Error Handler */
 app.use((err, req, res, next) => {
   console.error('🔥 Server error:', err);
   res.status(500).json({ message: 'Internal Server Error' });

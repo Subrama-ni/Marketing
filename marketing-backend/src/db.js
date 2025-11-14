@@ -1,10 +1,15 @@
 import pkg from 'pg';
 import dotenv from 'dotenv';
 dotenv.config();
+
 const { Pool } = pkg;
 
+// ✅ Handle SSL for Render deployment automatically
+const isProduction = process.env.NODE_ENV === 'production';
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  ssl: isProduction ? { rejectUnauthorized: false } : false,
 });
 
 export default pool;

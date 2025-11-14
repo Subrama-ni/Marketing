@@ -63,7 +63,7 @@ export const deleteCustomer = async (id) => {
 };
 
 /* =========================================================
-   📘 Entries
+   📘 Entries (Supports item_name + bags)
 ========================================================= */
 export const createEntry = async (data) => {
   try {
@@ -73,6 +73,7 @@ export const createEntry = async (data) => {
       kgs: Number(data.kgs),
       rate: Number(data.rate),
       commission: Number(data.commission || 0),
+      bags: Number(data.bags || 0),
     };
     return await axios.post(`${BASE}/entries`, payload);
   } catch (error) {
@@ -88,9 +89,13 @@ export const getEntriesByCustomer = async (customerId) => {
   }
 };
 
-export const deleteEntry = async (id) => {
+export const getEntriesForPayment = async (customerId, fromDate, toDate) => {
   try {
-    return await axios.delete(`${BASE}/entries/${id}`);
+    const f = normalizeDateForApi(fromDate);
+    const t = normalizeDateForApi(toDate);
+    return await axios.get(
+      `${BASE}/entries/for-payment/${customerId}/${f}/${t}`
+    );
   } catch (error) {
     handleError(error);
   }
@@ -104,6 +109,7 @@ export const updateEntry = async (id, data) => {
       kgs: Number(data.kgs),
       rate: Number(data.rate),
       commission: Number(data.commission || 0),
+      bags: Number(data.bags || 0),
     };
     return await axios.put(`${BASE}/entries/${id}`, payload);
   } catch (error) {
@@ -111,8 +117,16 @@ export const updateEntry = async (id, data) => {
   }
 };
 
+export const deleteEntry = async (id) => {
+  try {
+    return await axios.delete(`${BASE}/entries/${id}`);
+  } catch (error) {
+    handleError(error);
+  }
+};
+
 /* =========================================================
-   💰 Payments
+   💰 Payments (Supports bag_amount)
 ========================================================= */
 const normalizeDateForApi = (d) => {
   if (!d) return null;
@@ -120,23 +134,14 @@ const normalizeDateForApi = (d) => {
   return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
 };
 
-export const getEntriesForPayment = async (customerId, fromDate, toDate) => {
-  try {
-    const params = {};
-    const f = normalizeDateForApi(fromDate);
-    const t = normalizeDateForApi(toDate);
-    if (f) params.fromDate = f;
-    if (t) params.toDate = t;
-
-    return await axios.get(`${BASE}/payments/entries/${customerId}`, { params });
-  } catch (error) {
-    handleError(error);
-  }
-};
-
 export const makePayment = async (data) => {
   try {
-    return await axios.post(`${BASE}/payments`, data);
+    // Includes optional bag_amount if applicable
+    const payload = {
+      ...data,
+      bag_amount: Number(data.bag_amount || 0),
+    };
+    return await axios.post(`${BASE}/payments`, payload);
   } catch (error) {
     handleError(error);
   }

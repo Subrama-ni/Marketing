@@ -14,6 +14,8 @@ import EntriesPage from "./pages/EntriesPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import Sidebar from "./components/Sidebar";
 import "./App.css";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 /** ✅ ProtectedRoute */
 function ProtectedRoute({ children }) {
@@ -131,3 +133,13 @@ export default function App() {
     </AuthProvider>
   );
 }
+ <ToastContainer
+        position="top-right"
+        autoClose={2500}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        pauseOnHover
+        draggable
+        theme="colored"
+      />

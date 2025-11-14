@@ -333,3 +333,23 @@ body {
   background-color: var(--accent);
   border-radius: 10px;
 }
+.Toastify__toast {
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.Toastify__toast--success {
+  background: #2ecc71;
+}
+
+.Toastify__toast--error {
+  background: #e74c3c;
+}
+
+.Toastify__toast--info {
+  background: #3498db;
+}
+
+.Toastify__toast--warning {
+  background: #f39c12;
+}

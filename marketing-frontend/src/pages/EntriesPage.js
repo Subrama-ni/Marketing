@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import dayjs from "dayjs"; // ✅ Import dayjs for date formatting
+import dayjs from "dayjs";
 import {
   getCustomers,
   createEntry,
@@ -9,7 +9,6 @@ import {
   updateEntry,
 } from "../api";
 
-/** ✅ Helper to read ?customerId= from URL */
 const useQuery = () => new URLSearchParams(useLocation().search);
 
 export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
@@ -17,21 +16,29 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
   const [customers, setCustomers] = useState([]);
   const [customerId, setCustomerId] = useState(selectedCustomer?.id || "");
   const [entries, setEntries] = useState([]);
-  const [form, setForm] = useState({ date: "", kgs: "", rate: "", commission: "" });
+
+  // ⭐ Added paid_amount field
+  const [form, setForm] = useState({
+    date: "",
+    kgs: "",
+    rate: "",
+    commission: "",
+    item_name: "",
+    bags: "",
+    paid_amount: "",
+  });
+
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // ✅ Load customers initially
   useEffect(() => {
     loadCustomers();
   }, []);
 
-  // ✅ Sync selected customer
   useEffect(() => {
     if (selectedCustomer) setCustomerId(selectedCustomer.id);
   }, [selectedCustomer]);
 
-  // ✅ Handle ?customerId= from URL
   useEffect(() => {
     const urlCustomerId = query.get("customerId");
     if (urlCustomerId && urlCustomerId !== customerId) {
@@ -39,13 +46,11 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     }
   }, [query]);
 
-  // ✅ Load entries when customer changes
   useEffect(() => {
     if (customerId) loadEntries(customerId);
     else setEntries([]);
   }, [customerId]);
 
-  /** ✅ Fetch customers */
   const loadCustomers = async () => {
     try {
       const res = await getCustomers();
@@ -55,14 +60,11 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     }
   };
 
-  /** ✅ Fetch entries */
   const loadEntries = async (cid) => {
     try {
       setLoading(true);
       const res = await getEntriesByCustomer(cid);
       const data = res.data || [];
-
-      // 🧮 Correct formula (kgs - commission) * rate
       const processed = data.map((e) => {
         const kgs = Number(e.kgs || 0);
         const rate = Number(e.rate || 0);
@@ -71,7 +73,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         const amount = (kgs - commission) * rate;
         return { ...e, amount, remaining: Math.max(amount - paid, 0) };
       });
-
       setEntries(processed);
     } catch (e) {
       console.error("❌ Error loading entries:", e);
@@ -80,7 +81,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     }
   };
 
-  /** ✅ Add or Update entry */
   const submit = async (e) => {
     e.preventDefault();
     if (!customerId) return alert("Please select a customer");
@@ -89,11 +89,13 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
 
     const payload = {
       customerId: Number(customerId),
-      // ✅ Ensure correct date format (no timezone shift)
       entry_date: dayjs(form.date).format("YYYY-MM-DD"),
       kgs: Number(form.kgs),
       rate: Number(form.rate),
       commission: Number(form.commission || 0),
+      item_name: form.item_name || "",
+      bags: Number(form.bags || 0),
+      paid_amount: Number(form.paid_amount || 0), // ⭐ New
     };
 
     try {
@@ -104,7 +106,16 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         await createEntry(payload);
         alert("✅ Entry added successfully!");
       }
-      setForm({ date: "", kgs: "", rate: "", commission: "" });
+
+      setForm({
+        date: "",
+        kgs: "",
+        rate: "",
+        commission: "",
+        item_name: "",
+        bags: "",
+        paid_amount: "",
+      });
       setEditingId(null);
       loadEntries(customerId);
     } catch (err) {
@@ -112,35 +123,40 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     }
   };
 
-  /** ✅ Start editing */
   const handleEdit = (entry) => {
     setEditingId(entry.id);
-
-    // ✅ Fix timezone issue (use dayjs instead of new Date)
     const localDate = dayjs(entry.entry_date).format("YYYY-MM-DD");
-
     setForm({
       date: localDate,
       kgs: entry.kgs,
       rate: entry.rate,
       commission: entry.commission,
+      item_name: entry.item_name || "",
+      bags: entry.bags || "",
+      paid_amount: entry.paid_amount || "", // ⭐ Added
     });
   };
 
-  /** ✅ Cancel editing */
   const handleCancel = () => {
     setEditingId(null);
-    setForm({ date: "", kgs: "", rate: "", commission: "" });
+    setForm({
+      date: "",
+      kgs: "",
+      rate: "",
+      commission: "",
+      item_name: "",
+      bags: "",
+      paid_amount: "",
+    });
   };
 
-  /** ✅ Delete entry */
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this entry?")) return;
     try {
       await deleteEntry(id);
       alert("🗑️ Entry deleted");
       loadEntries(customerId);
-    } catch (err) {
+    } catch {
       alert("Error deleting entry");
     }
   };
@@ -150,7 +166,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       <div className="card">
         <h2>{editingId ? "Edit Entry" : "Add / Manage Entries"}</h2>
 
-        {/* 🔹 Entry Form */}
         <form className="form-row" onSubmit={submit}>
           <select
             className="input"
@@ -177,6 +192,14 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
           />
+
+          <input
+            className="input"
+            placeholder="Item Name"
+            value={form.item_name}
+            onChange={(e) => setForm({ ...form, item_name: e.target.value })}
+          />
+
           <input
             className="input"
             placeholder="Kgs"
@@ -184,6 +207,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             value={form.kgs}
             onChange={(e) => setForm({ ...form, kgs: e.target.value })}
           />
+
           <input
             className="input"
             placeholder="Rate"
@@ -191,6 +215,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             value={form.rate}
             onChange={(e) => setForm({ ...form, rate: e.target.value })}
           />
+
           <input
             className="input"
             placeholder="Commission"
@@ -199,9 +224,28 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, commission: e.target.value })}
           />
 
+          <input
+            className="input"
+            placeholder="Bags"
+            type="number"
+            value={form.bags}
+            onChange={(e) => setForm({ ...form, bags: e.target.value })}
+          />
+
+          {/* ⭐ New Paid Amount field */}
+          <input
+            className="input"
+            placeholder="Paid Amount (optional)"
+            type="number"
+            value={form.paid_amount}
+            onChange={(e) =>
+              setForm({ ...form, paid_amount: e.target.value })
+            }
+          />
+
           <div style={{ display: "flex", gap: "8px" }}>
             <button className="btn" type="submit">
-              {editingId ? "Save Changes" : "Add"}
+              {editingId ? "Save Changes" : "Add Entry"}
             </button>
             {editingId && (
               <button type="button" className="btn ghost" onClick={handleCancel}>
@@ -212,7 +256,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         </form>
       </div>
 
-      {/* 🔹 Entries Table */}
       <div className="card" style={{ marginTop: 12 }}>
         <h2>Entries</h2>
 
@@ -223,6 +266,8 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Item</th>
+                <th>Bags</th>
                 <th>Kgs</th>
                 <th>Rate</th>
                 <th>Comm</th>
@@ -235,7 +280,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             <tbody>
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ padding: 12, textAlign: "center" }}>
+                  <td colSpan="10" style={{ textAlign: "center", padding: 12 }}>
                     No entries found
                   </td>
                 </tr>
@@ -243,17 +288,23 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                 entries.map((e) => (
                   <tr key={e.id}>
                     <td>{dayjs(e.entry_date).format("DD/MM/YYYY")}</td>
+                    <td>{e.item_name || "-"}</td>
+                    <td>{e.bags || 0}</td>
                     <td>{e.kgs}</td>
                     <td>{e.rate}</td>
                     <td>{e.commission}</td>
                     <td>₹{e.amount.toFixed(2)}</td>
                     <td>₹{e.paid_amount || 0}</td>
                     <td>₹{e.remaining.toFixed(2)}</td>
+
                     <td style={{ display: "flex", gap: "6px" }}>
                       <button className="btn ghost" onClick={() => handleEdit(e)}>
                         Edit
                       </button>
-                      <button className="btn ghost" onClick={() => handleDelete(e.id)}>
+                      <button
+                        className="btn ghost"
+                        onClick={() => handleDelete(e.id)}
+                      >
                         Delete
                       </button>
                     </td>
