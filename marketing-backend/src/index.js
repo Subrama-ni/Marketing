@@ -14,28 +14,23 @@ dotenv.config();
 
 const { Pool } = pkg;
 
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === "production";
 
 const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ||
-    'postgres://postgres:yourpassword@localhost:5432/marketing',
-  ssl: isProduction
-    ? { rejectUnauthorized: false }
-    : false,
+    "postgres://postgres:yourpassword@localhost:5432/marketing",
+  ssl: isProduction ? { rejectUnauthorized: false } : false,
 });
 
 const app = express();
 
-/* ======================
-   CORS
-====================== */
+/* ======================================================
+   CORS CONFIG
+====================================================== */
 const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((url) => url.trim())
-  : [
-      'http://localhost:3000', // React default
-      'http://localhost:4001', // If custom UI
-    ];
+  ? process.env.CORS_ORIGIN.split(",").map((url) => url.trim())
+  : ["http://localhost:3000", "http://localhost:4001"];
 
 app.use(
   cors({
@@ -46,12 +41,16 @@ app.use(
 
 app.use(express.json());
 
-/* ======================
-   DB INIT
-====================== */
+/* ======================================================
+   DATABASE INITIALIZATION
+====================================================== */
 async function initDB() {
   try {
-    // 👤 USERS (Auth)
+    console.log("⏳ Initializing database...");
+
+    /* -------------------------
+       USERS TABLE
+    --------------------------*/
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -62,7 +61,9 @@ async function initDB() {
       );
     `);
 
-    // 👥 CUSTOMERS (Scoped by user_id)
+    /* -------------------------
+       CUSTOMERS TABLE
+    --------------------------*/
     await pool.query(`
       CREATE TABLE IF NOT EXISTS customers (
         id SERIAL PRIMARY KEY,
@@ -74,7 +75,9 @@ async function initDB() {
       );
     `);
 
-    // 📦 ENTRIES (with bags + user_id)
+    /* -------------------------
+       ENTRIES TABLE
+    --------------------------*/
     await pool.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id SERIAL PRIMARY KEY,
@@ -89,11 +92,28 @@ async function initDB() {
         amount NUMERIC(12,2) DEFAULT 0,
         paid_amount NUMERIC(12,2) DEFAULT 0,
         remaining NUMERIC(12,2) DEFAULT 0,
+        already_paid NUMERIC(12,2) DEFAULT 0,  -- ⭐ NEW COLUMN
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // 💰 PAYMENTS (with bag amount + user_id)
+    // Ensure already_paid exists
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name='entries' AND column_name='already_paid'
+        ) THEN
+          ALTER TABLE entries ADD COLUMN already_paid NUMERIC(12,2) DEFAULT 0;
+        END IF;
+      END$$;
+    `);
+
+    /* -------------------------
+       PAYMENTS TABLE
+    --------------------------*/
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY,
@@ -109,47 +129,47 @@ async function initDB() {
       );
     `);
 
-    console.log('✅ Database ready');
+    console.log("✅ Database ready");
   } catch (err) {
-    console.error('❌ Database init error:', err);
+    console.error("❌ Database init error:", err);
   }
 }
 
 await initDB();
 
-/* ======================
+/* ======================================================
    API ROUTES
-====================== */
-app.use('/api/auth', authRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/entries', entryRoutes);
-app.use('/api/payments', paymentRoutes);
+====================================================== */
+app.use("/api/auth", authRoutes);
+app.use("/api/customers", customerRoutes);
+app.use("/api/entries", entryRoutes);
+app.use("/api/payments", paymentRoutes);
 
-/* ======================
-   HEALTH (Render)
-====================== */
-app.get('/healthz', (req, res) => res.status(200).send('OK'));
+/* ======================================================
+   HEALTH CHECK
+====================================================== */
+app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
-/* ======================
-   PDF BILL DIRECTORY
-====================== */
+/* ======================================================
+   STATIC DIRECTORY FOR PDF BILLS
+====================================================== */
 const __dirname = path.resolve();
-app.use('/bills', express.static(path.join(__dirname, 'bills')));
+app.use("/bills", express.static(path.join(__dirname, "bills")));
 
-/* ======================
+/* ======================================================
    GLOBAL ERROR HANDLER
-====================== */
+====================================================== */
 app.use((err, req, res, next) => {
-  console.error('🔥 Server error:', err);
-  res.status(500).json({ message: 'Internal Server Error' });
+  console.error("🔥 Unhandled Server Error:", err);
+  res.status(500).json({ message: "Internal Server Error" });
 });
 
-/* ======================
+/* ======================================================
    START SERVER
-====================== */
+====================================================== */
 const PORT = process.env.PORT || 4000;
 
-app.listen(PORT, '0.0.0.0', () =>
+app.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 Backend running on port ${PORT}`)
 );
 
