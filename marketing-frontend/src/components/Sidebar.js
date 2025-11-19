@@ -1,81 +1,60 @@
+// src/components/Sidebar.js
 import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
-  FaTachometerAlt,
-  FaUsers,
-  FaListAlt,
-  FaMoneyBillAlt,
-  FaSignOutAlt,
-  FaSun,
-  FaMoon,
-} from "react-icons/fa";
+  MdDashboard,
+  MdPeople,
+  MdListAlt,
+  MdPayments,
+  MdLogout,
+  MdMenu,
+} from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
-import "./Sidebar.css";
 
 export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme }) {
-  const navigate = useNavigate();
   const { logout } = useAuth();
+  const { pathname } = useLocation();
 
-  const links = [
-    { to: "/dashboard", label: "Dashboard", icon: <FaTachometerAlt /> },
-    { to: "/customers", label: "Customers", icon: <FaUsers /> },
-    { to: "/entries", label: "Entries", icon: <FaListAlt /> },
-    { to: "/payments", label: "Payments", icon: <FaMoneyBillAlt /> },
+  const menuItems = [
+    { icon: <MdDashboard />, label: "Dashboard", to: "/" },
+    { icon: <MdPeople />, label: "Customers", to: "/customers" },
+    { icon: <MdListAlt />, label: "Entries", to: "/entries" },
+    { icon: <MdPayments />, label: "Payments", to: "/payments" },
   ];
 
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
-  };
-
   return (
-    <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-      {/* Header */}
-      <div className="sidebar-header">
-        {!collapsed && <h2 className="sidebar-title">MyApp</h2>}
-        <button
-          className="toggle-btn"
-          onClick={() => setCollapsed(!collapsed)}
-          aria-label="Toggle sidebar"
-        >
-          {collapsed ? "☰" : "✕"}
+    <div className={`premium-sidebar ${collapsed ? "collapsed" : ""}`}>
+      <div className="sidebar-top">
+        <button className="menu-btn" onClick={setCollapsed}>
+          <MdMenu />
         </button>
+        {!collapsed && <h3>💼 Smart Billing</h3>}
       </div>
 
-      {/* Navigation */}
-      <nav className="sidebar-nav">
-        {links.map((link) => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            className={({ isActive }) =>
-              `sidebar-link ${isActive ? "active" : ""}`
-            }
-            title={collapsed ? link.label : ""}
+      <div className="sidebar-menu">
+        {menuItems.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={`menu-item ${pathname === item.to ? "active" : ""}`}
           >
-            <span className="icon">{link.icon}</span>
-            {!collapsed && <span className="label">{link.label}</span>}
-          </NavLink>
+            {item.icon}
+            {!collapsed && <span>{item.label}</span>}
+          </Link>
         ))}
-      </nav>
+      </div>
 
-      {/* Footer */}
-      <div className="sidebar-footer">
-        <button className="theme-toggle" onClick={toggleTheme}>
-          {theme === "light" ? <FaMoon /> : <FaSun />}
-          {!collapsed && (
-            <span>{theme === "light" ? "Dark Mode" : "Light Mode"}</span>
-          )}
-        </button>
+      <div className="sidebar-bottom">
+        {!collapsed && (
+          <button className="theme-switch" onClick={toggleTheme}>
+            {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
+          </button>
+        )}
 
-        <button className="logout-btn" onClick={handleLogout}>
-          <FaSignOutAlt className="icon" />
+        <button className="logout-btn" onClick={logout}>
+          <MdLogout />
           {!collapsed && <span>Logout</span>}
         </button>
-
-        {!collapsed && (
-          <small className="footer-text">© {new Date().getFullYear()} MyApp</small>
-        )}
       </div>
     </div>
   );

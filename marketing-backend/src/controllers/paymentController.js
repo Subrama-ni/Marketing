@@ -1,12 +1,23 @@
-import pool from '../db.js';
-import PDFDocument from 'pdfkit';
-import fs from 'fs';
-import path from 'path';
-import { parseDateQuery, formatDateTimeReadable } from '../utils/dateUtils.js';
-import dayjs from 'dayjs';
+import pool from "../db.js";
+import PDFDocument from "pdfkit";
+import fs from "fs";
+import path from "path";
+import { parseDateQuery, formatDateTimeReadable } from "../utils/dateUtils.js";
+import dayjs from "dayjs";
 
-const generateBillPDF = async (customer, entries, amount, paymentMode, fromDate, toDate, billId) => {
-  const pdfDir = path.resolve('bills');
+/* ======================================================
+   PDF GENERATION (bags + already_paid)
+====================================================== */
+const generateBillPDF = async (
+  customer,
+  entries,
+  amount,
+  paymentMode,
+  fromDate,
+  toDate,
+  billId
+) => {
+  const pdfDir = path.resolve("bills");
   if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir);
   const filename = `bill_${billId}.pdf`;
   const filePath = path.join(pdfDir, filename);
@@ -17,152 +28,303 @@ const generateBillPDF = async (customer, entries, amount, paymentMode, fromDate,
       const stream = fs.createWriteStream(filePath);
       doc.pipe(stream);
 
-      doc.fontSize(18).text('Payment Bill', { align: 'center' });
+      doc.fontSize(18).text("Payment Bill", { align: "center" });
       doc.moveDown();
       doc.fontSize(11).text(`Bill ID: ${billId}`);
       doc.text(`Customer: ${customer.name}`);
-      doc.text(`Phone: ${customer.phone || '-'}`);
-      doc.text(`Period: ${dayjs(fromDate).format('DD-MM-YYYY')} → ${dayjs(toDate).format('DD-MM-YYYY')}`);
-      doc.text(`Payment Mode: ${paymentMode || '-'}`);
+      doc.text(`Phone: ${customer.phone || "-"}`);
+      doc.text(
+        `Period: ${dayjs(fromDate).format("DD-MM-YYYY")} → ${dayjs(
+          toDate
+        ).format("DD-MM-YYYY")}`
+      );
+      doc.text(`Payment Mode: ${paymentMode || "-"}`);
       doc.text(`Payment Date: ${formatDateTimeReadable(new Date())}`);
       doc.moveDown();
-      doc.fontSize(12).text('Entries:', { underline: true });
+      doc.fontSize(12).text("Entries:", { underline: true });
       doc.moveDown(0.5);
 
       entries.forEach((e, i) => {
-        const calcAmount = Number(e.kgs) * Number(e.rate) - Number(e.commission || 0);
-        doc.fontSize(10).text(
-          `${i + 1}. ${dayjs(e.entry_date).format('DD-MM-YYYY')} | Kgs: ${e.kgs} | Rate: ${e.rate} | Comm: ${e.commission} | Amount: ₹${calcAmount.toFixed(2)} | Paid before: ₹${e.paid_amount}`
-        );
+        const calcAmount =
+          Number(e.kgs) * Number(e.rate) - Number(e.commission || 0);
+
+        doc
+          .fontSize(10)
+          .text(
+            `${i + 1}. ${dayjs(e.entry_date).format(
+              "DD-MM-YYYY"
+            )} | Kgs: ${e.kgs} | Rate: ${e.rate} | Comm: ${
+              e.commission
+            } | Bags: ${e.bags} | Amount: ₹${calcAmount.toFixed(
+              2
+            )} | Already Paid: ₹${e.already_paid || 0} | Paid before: ₹${
+              e.paid_amount
+            }`
+          );
       });
 
       doc.moveDown();
-      doc.fontSize(12).text(`Total Paid This Time: ₹${Number(amount).toFixed(2)}`, { align: 'right' });
+      doc
+        .fontSize(12)
+        .text(`Total Paid This Time: ₹${Number(amount).toFixed(2)}`, {
+          align: "right",
+        });
       doc.end();
 
-      stream.on('finish', () => resolve({ filePath, filename }));
-      stream.on('error', reject);
+      stream.on("finish", () => resolve({ filePath, filename }));
+      stream.on("error", reject);
     } catch (err) {
       reject(err);
     }
   });
 };
 
-// fetch entries for payment (with flexible date parsing)
+/* ======================================================
+   GET ENTRIES FOR PAYMENT (bags + already_paid)
+====================================================== */
 export const getEntriesForPayment = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { customerId } = req.params;
     let { fromDate, toDate } = req.query;
 
-    if (!fromDate || !toDate) return res.status(400).json({ message: 'Missing date range' });
+    if (!fromDate || !toDate)
+      return res.status(400).json({ message: "Missing date range" });
+
+    const check = await pool.query(
+      `SELECT 1 FROM customers WHERE id=$1 AND user_id=$2`,
+      [customerId, userId]
+    );
+    if (check.rowCount === 0)
+      return res.status(403).json({ message: "Not allowed" });
 
     const from = parseDateQuery(fromDate);
     const to = parseDateQuery(toDate);
-    if (!from || !to) return res.status(400).json({ message: 'Invalid date range' });
-
-    // include entire day for 'to'
     to.setHours(23, 59, 59, 999);
 
+    // ✔ now selecting already_paid
     const entriesRes = await pool.query(
-      `SELECT id, entry_date, kgs, rate, commission, amount, paid_amount
-       FROM entries WHERE customer_id=$1 AND entry_date BETWEEN $2 AND $3 ORDER BY entry_date ASC`,
-      [customerId, from, to]
+      `SELECT id, entry_date, kgs, rate, commission, bags, amount, paid_amount, already_paid
+       FROM entries
+       WHERE customer_id=$1 AND user_id=$2 AND entry_date BETWEEN $3 AND $4
+       ORDER BY entry_date ASC`,
+      [customerId, userId, from, to]
     );
 
     const outsideRes = await pool.query(
       `SELECT COALESCE(SUM((kgs*rate - COALESCE(commission,0)) - COALESCE(paid_amount,0)),0) AS remaining_outside
-       FROM entries WHERE customer_id=$1 AND (entry_date < $2 OR entry_date > $3)`,
-      [customerId, from, to]
+       FROM entries 
+       WHERE customer_id=$1 AND user_id=$2
+       AND (entry_date < $3 OR entry_date > $4)`,
+      [customerId, userId, from, to]
     );
 
-    const entries = entriesRes.rows.map(e => ({
+    const entries = entriesRes.rows.map((e) => ({
       ...e,
-      amount: Number(e.kgs) * Number(e.rate) - Number(e.commission || 0)
+      bags: Number(e.bags || 0),
+      amount: Number(e.kgs) * Number(e.rate) - Number(e.commission || 0),
+      already_paid: Number(e.already_paid || 0),
     }));
 
-    const totalAmount = entries.reduce((s, e) => s + Number(e.amount || 0), 0);
-    const totalPaid = entries.reduce((s, e) => s + Number(e.paid_amount || 0), 0);
+    const totalAmount = entries.reduce((s, e) => s + e.amount, 0);
+    const totalPaid = entries.reduce(
+      (s, e) => s + Number(e.paid_amount || 0),
+      0
+    );
 
     res.json({
       entries,
       totals: {
         totalAmount,
         totalPaid,
-        remainingOutside: Number(outsideRes.rows[0].remaining_outside || 0)
-      }
+        remainingOutside: Number(outsideRes.rows[0].remaining_outside),
+      },
     });
   } catch (err) {
-    console.error('getEntriesForPayment error', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error("getEntriesForPayment error", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
+/* ======================================================
+   MAKE PAYMENT (duplicate-proof + bags + already_paid)
+====================================================== */
 export const makePayment = async (req, res) => {
   const client = await pool.connect();
+
   try {
+    const userId = req.user.id;
     let { customerId, amount, paymentMode, fromDate, toDate } = req.body;
-    if (!customerId || amount === undefined || !fromDate || !toDate) return res.status(400).json({ message: 'Invalid fields' });
+
+    if (!customerId || amount == null || !fromDate || !toDate)
+      return res.status(400).json({ message: "Invalid fields" });
 
     const from = parseDateQuery(fromDate);
     const to = parseDateQuery(toDate);
-    if (!from || !to) return res.status(400).json({ message: 'Invalid date range' });
     to.setHours(23, 59, 59, 999);
 
-    await client.query('BEGIN');
+    // verify customer
+    const customerRes = await client.query(
+      `SELECT id, name, phone FROM customers WHERE id=$1 AND user_id=$2`,
+      [customerId, userId]
+    );
+    if (customerRes.rowCount === 0)
+      return res.status(403).json({ message: "Not allowed" });
 
-    const custRes = await client.query('SELECT id, name, phone FROM customers WHERE id=$1', [customerId]);
-    if (custRes.rowCount === 0) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Customer not found' }); }
-    const customer = custRes.rows[0];
+    const customer = customerRes.rows[0];
 
+    await client.query("BEGIN");
+
+    // ✔ DUPLICATE CHECK 1 — same date range already paid
+    const duplicateRange = await client.query(
+      `SELECT 1 FROM payments WHERE customer_id=$1 AND user_id=$2 AND from_date=$3 AND to_date=$4`,
+      [customerId, userId, from, to]
+    );
+
+    if (duplicateRange.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        message:
+          "This date range has already been paid. Duplicate payment blocked.",
+      });
+    }
+
+    // fetch entries
     const entriesRes = await client.query(
-      `SELECT id, kgs, rate, commission, amount, paid_amount, entry_date 
-       FROM entries WHERE customer_id=$1 AND entry_date BETWEEN $2 AND $3 ORDER BY entry_date ASC`,
-      [customerId, from, to]
+      `SELECT id, kgs, rate, commission, bags, entry_date, paid_amount, already_paid
+       FROM entries WHERE customer_id=$1 AND user_id=$2 AND entry_date BETWEEN $3 AND $4
+       ORDER BY entry_date ASC`,
+      [customerId, userId, from, to]
     );
 
     const entries = entriesRes.rows;
-    if (entries.length === 0) { await client.query('ROLLBACK'); return res.status(400).json({ message: 'No entries found' }); }
 
-    let remaining = Number(amount);
-    for (const entry of entries) {
-      if (remaining <= 0) break;
-      const recalculated = Number(entry.kgs) * Number(entry.rate) - Number(entry.commission || 0);
-      const entryRemaining = recalculated - Number(entry.paid_amount);
-      if (entryRemaining <= 0) continue;
-      const payForEntry = Math.min(entryRemaining, remaining);
-      await client.query('UPDATE entries SET paid_amount = paid_amount + $1 WHERE id = $2', [payForEntry, entry.id]);
-      remaining -= payForEntry;
+    if (entries.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ message: "No entries found" });
     }
 
-    const payRes = await client.query(
-      `INSERT INTO payments (customer_id, amount, mode, from_date, to_date, payment_date) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [customerId, Number(amount), paymentMode, from, to, dayjs().toISOString()]
+    // ✔ COMPUTE UNPAID
+    const unpaidEntries = entries.filter((e) => {
+      const amt = e.kgs * e.rate - (e.commission || 0);
+      return amt - e.paid_amount > 0;
+    });
+
+    // ✔ DUPLICATE CHECK 2 — no unpaid entries
+    if (unpaidEntries.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        message:
+          "All entries in this period are already fully paid. Duplicate payment blocked.",
+      });
+    }
+
+    // ✔ compute total remaining
+    const totalRemaining = unpaidEntries.reduce((sum, e) => {
+      const amt = e.kgs * e.rate - (e.commission || 0);
+      return sum + (amt - e.paid_amount);
+    }, 0);
+
+    // ✔ DUPLICATE CHECK 3 — paying more than remaining
+    if (Number(amount) > totalRemaining) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        message: `Payment exceeds remaining amount. Remaining: ₹${totalRemaining}`,
+      });
+    }
+
+    // ✔ DUPLICATE CHECK 4 — invalid amount
+    if (Number(amount) <= 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        message: "Invalid payment amount.",
+      });
+    }
+
+    // ⭐PROCESS PAYMENT
+    let remaining = Number(amount);
+
+    for (const entry of unpaidEntries) {
+      if (remaining <= 0) break;
+
+      const recalculated =
+        entry.kgs * entry.rate - Number(entry.commission || 0);
+
+      const entryRemaining = recalculated - entry.paid_amount;
+      if (entryRemaining <= 0) continue;
+
+      const payEntry = Math.min(entryRemaining, remaining);
+
+      await client.query(
+        `UPDATE entries 
+         SET paid_amount = paid_amount + $1 
+         WHERE id=$2 AND user_id=$3`,
+        [payEntry, entry.id, userId]
+      );
+
+      remaining -= payEntry;
+    }
+
+    const paymentLog = await client.query(
+      `INSERT INTO payments (customer_id, user_id, amount, mode, from_date, to_date, payment_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id`,
+      [customerId, userId, amount, paymentMode, from, to, dayjs().toISOString()]
     );
-    const billId = payRes.rows[0].id;
 
-    const pdfInfo = await generateBillPDF(customer, entries, amount, paymentMode, from, to, billId);
+    const billId = paymentLog.rows[0].id;
 
-    await client.query('COMMIT');
-    res.json({ message: 'Payment successful', billId, pdfUrl: `/bills/${pdfInfo.filename}` });
+    const pdfInfo = await generateBillPDF(
+      customer,
+      entries,
+      amount,
+      paymentMode,
+      from,
+      to,
+      billId
+    );
+
+    await client.query("COMMIT");
+
+    res.json({
+      message: "Payment successful",
+      billId,
+      pdfUrl: `/bills/${pdfInfo.filename}`,
+    });
   } catch (err) {
-    await client.query('ROLLBACK').catch(()=>{});
-    console.error('makePayment error', err);
-    res.status(500).json({ message: 'Server error' });
+    await client.query("ROLLBACK");
+    console.error("makePayment error", err);
+    res.status(500).json({ message: "Server error" });
   } finally {
     client.release();
   }
 };
 
+/* ======================================================
+   GET PAYMENT HISTORY
+====================================================== */
 export const getPaymentHistory = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { customerId } = req.params;
-    const { rows } = await pool.query(
-      `SELECT id, amount, mode, from_date, to_date, payment_date FROM payments WHERE customer_id=$1 ORDER BY payment_date DESC`,
-      [customerId]
+
+    const check = await pool.query(
+      `SELECT 1 FROM customers WHERE id=$1 AND user_id=$2`,
+      [customerId, userId]
     );
+    if (check.rowCount === 0)
+      return res.status(403).json({ message: "Not allowed" });
+
+    const { rows } = await pool.query(
+      `SELECT id, amount, mode, from_date, to_date, payment_date
+       FROM payments WHERE customer_id=$1 AND user_id=$2
+       ORDER BY payment_date DESC`,
+      [customerId, userId]
+    );
+
     res.json(rows);
   } catch (err) {
-    console.error('getPaymentHistory error', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error("getPaymentHistory error", err);
+    res.status(500).json({ message: "Server error" });
   }
 };

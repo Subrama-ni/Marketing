@@ -1,14 +1,21 @@
-import express from 'express';
-import { getEntriesForPayment, makePayment, getPaymentHistory } from '../controllers/paymentController.js';
+import express from "express";
+import {
+  getEntriesForPayment,
+  makePayment,
+  getPaymentHistory
+} from "../controllers/paymentController.js";
+
+import { auth } from "../middleware/auth.js";
+
 const router = express.Router();
 
-// GET entries for a customer in range -> /api/payments/entries/:customerId?fromDate=...&toDate=...
-router.get('/entries/:customerId', getEntriesForPayment);
+// GET unpaid & total entries within a date range
+router.get("/entries/:customerId", auth, getEntriesForPayment);
 
-// POST payment -> /api/payments
-router.post('/', makePayment);
+// POST payment
+router.post("/", auth, makePayment);
 
-// GET history -> /api/payments/history/:customerId
-router.get('/history/:customerId', getPaymentHistory);
+// GET payment history
+router.get("/history/:customerId", auth, getPaymentHistory);
 
 export default router;

@@ -3,25 +3,16 @@ import {
   createEntry,
   getEntriesByCustomer,
   updateEntry,
-  deleteEntry,
-  getEntriesForPayment,
+  deleteEntry
 } from "../controllers/entryController.js";
+import { auth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Always put EXACT routes BEFORE dynamic ":customerId"
-router.get("/for-payment/:customerId/:fromDate/:toDate", getEntriesForPayment);
-
-// Create entry
-router.post("/", createEntry);
-
-// Get entries for specific customer
-router.get("/:customerId", getEntriesByCustomer);
-
-// Update entry
-router.put("/:id", updateEntry);
-
-// Delete entry
-router.delete("/:id", deleteEntry);
+// Protected routes
+router.post("/", auth, createEntry);
+router.get("/:customerId", auth, getEntriesByCustomer);
+router.put("/:id", auth, updateEntry);
+router.delete("/:id", auth, deleteEntry);
 
 export default router;

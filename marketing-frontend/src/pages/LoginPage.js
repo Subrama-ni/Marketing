@@ -2,11 +2,13 @@ import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { loginUser, registerUser } from "../api";
+import { toast } from "react-toastify";
 import "../styles/Auth.css";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+
   const [isRegister, setIsRegister] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [loading, setLoading] = useState(false);
@@ -18,17 +20,25 @@ export default function LoginPage() {
     e.preventDefault();
     try {
       setLoading(true);
+
       if (isRegister) {
         await registerUser(form);
-        alert("✅ Registration successful! You can now log in.");
+        toast.success("🎉 Registration successful! Please login.");
         setIsRegister(false);
       } else {
         const res = await loginUser(form);
+
+        // Store login time here (correct placement)
+        localStorage.setItem("loginTime", Date.now());
+
+        // Auth context login
         login(res.data.token, res.data.user);
+
+        toast.success(`👋 Welcome, ${res.data.user.name}!`);
         navigate("/dashboard");
       }
     } catch (err) {
-      alert(err.response?.data?.message || "Authentication failed");
+      toast.error(err.response?.data?.message || "Authentication failed");
     } finally {
       setLoading(false);
     }
@@ -38,6 +48,7 @@ export default function LoginPage() {
     <div className="auth-container">
       <div className="auth-card">
         <h2>{isRegister ? "Register" : "Login"}</h2>
+
         <form onSubmit={handleSubmit}>
           {isRegister && (
             <input
@@ -48,6 +59,7 @@ export default function LoginPage() {
               required
             />
           )}
+
           <input
             name="email"
             type="email"
@@ -56,6 +68,7 @@ export default function LoginPage() {
             onChange={handleChange}
             required
           />
+
           <input
             name="password"
             type="password"
@@ -64,15 +77,26 @@ export default function LoginPage() {
             onChange={handleChange}
             required
           />
+
           <button type="submit" disabled={loading}>
-            {loading ? "Please wait..." : isRegister ? "Register" : "Login"}
+            {loading
+              ? "Please wait..."
+              : isRegister
+              ? "Create Account"
+              : "Login"}
           </button>
         </form>
 
         <p className="toggle-text">
-          {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
+          {isRegister ? "Already have an account?" : "New here?"}{" "}
           <span onClick={() => setIsRegister(!isRegister)}>
             {isRegister ? "Login" : "Register"}
+          </span>
+        </p>
+
+        <p className="toggle-text">
+          <span onClick={() => navigate("/forgot-password")}>
+            Forgot password?
           </span>
         </p>
       </div>

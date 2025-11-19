@@ -18,7 +18,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
   const [customerId, setCustomerId] = useState(selectedCustomer?.id || "");
   const [entries, setEntries] = useState([]);
 
-  // form state (includes paid_amount)
   const [form, setForm] = useState({
     date: "",
     kgs: "",
@@ -27,83 +26,75 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     item_name: "",
     bags: "",
     paid_amount: "",
+    already_paid: "",
   });
 
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // load customers (useCallback to satisfy lint)
+  /** Load Customers */
   const loadCustomers = useCallback(async () => {
     try {
       const res = await getCustomers();
       setCustomers(res.data || []);
     } catch (e) {
-      console.error("❌ Error fetching customers:", e);
-      toast.error("Error loading customers", { position: "top-right", transition: Slide });
+      toast.error("Error loading customers", { transition: Slide });
     }
   }, []);
 
-  // load entries by customer (useCallback)
-  const loadEntries = useCallback(
-    async (cid) => {
-      try {
-        setLoading(true);
-        const res = await getEntriesByCustomer(cid);
-        const data = res.data || [];
-        // allow negative remaining: remaining = amount - paid
-        const processed = data.map((e) => {
-          const kgs = Number(e.kgs || 0);
-          const rate = Number(e.rate || 0);
-          const commission = Number(e.commission || 0);
-          const paid = Number(e.paid_amount || 0);
-          const amount = (kgs - commission) * rate;
-          const remaining = Number(amount - paid); // allow negative
-          return { ...e, amount, remaining, kgs, rate, commission };
-        });
-        setEntries(processed);
-      } catch (e) {
-        console.error("❌ Error loading entries:", e);
-        toast.error("Error loading entries", { position: "top-right", transition: Slide });
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+  /** Load Entries */
+  const loadEntries = useCallback(async (cid) => {
+    try {
+      setLoading(true);
+      const res = await getEntriesByCustomer(cid);
+      const data = res.data || [];
 
-  // initial load of customers
+      const processed = data.map((e) => {
+        const kgs = Number(e.kgs || 0);
+        const rate = Number(e.rate || 0);
+        const commission = Number(e.commission || 0);
+        const paid = Number(e.paid_amount || 0);
+        const amount = (kgs - commission) * rate;
+        const remaining = Math.max(amount - paid, 0);
+
+        return { ...e, amount, remaining };
+      });
+
+      setEntries(processed);
+    } catch (e) {
+      toast.error("Error loading entries", { transition: Slide });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
 
-  // when parent changes selectedCustomer
   useEffect(() => {
     if (selectedCustomer) setCustomerId(selectedCustomer.id);
   }, [selectedCustomer]);
 
-  // read customerId from URL param if provided
   useEffect(() => {
-    const urlCustomerId = query.get("customerId");
-    if (urlCustomerId && urlCustomerId !== customerId) {
-      setCustomerId(urlCustomerId);
+    const cid = query.get("customerId");
+    if (cid && cid !== customerId) {
+      setCustomerId(cid);
     }
   }, [query, customerId]);
 
-  // load entries when customerId changes
   useEffect(() => {
     if (customerId) loadEntries(customerId);
     else setEntries([]);
   }, [customerId, loadEntries]);
 
+  /** Submit Entry */
   const submit = async (e) => {
     e.preventDefault();
-    if (!customerId) {
-      toast.warn("Please select a customer", { position: "top-right", transition: Slide });
-      return;
-    }
+    if (!customerId) return toast.warn("Please select a customer");
+
     if (!form.date || !form.kgs || !form.rate) {
-      toast.warn("Date, Kgs, and Rate are required", { position: "top-right", transition: Slide });
-      return;
+      return toast.warn("Date, Kgs, and Rate are required");
     }
 
     const payload = {
@@ -115,15 +106,16 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       item_name: form.item_name || "",
       bags: Number(form.bags || 0),
       paid_amount: Number(form.paid_amount || 0),
+      already_paid: Number(form.already_paid || 0),
     };
 
     try {
       if (editingId) {
         await updateEntry(editingId, payload);
-        toast.success("Entry updated successfully!", { position: "top-right", transition: Slide });
+        toast.success("Entry updated!");
       } else {
         await createEntry(payload);
-        toast.success("Entry added successfully!", { position: "top-right", transition: Slide });
+        toast.success("Entry added!");
       }
 
       setForm({
@@ -134,28 +126,29 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         item_name: "",
         bags: "",
         paid_amount: "",
+        already_paid: "",
       });
+
       setEditingId(null);
-      // reload entries
-      await loadEntries(customerId);
+      loadEntries(customerId);
     } catch (err) {
-      console.error("Error saving entry", err);
-      const msg = err?.response?.data?.message || "Error saving entry";
-      toast.error(msg, { position: "top-right", transition: Slide });
+      toast.error(err?.response?.data?.message || "Error saving entry");
     }
   };
 
+  /** Edit */
   const handleEdit = (entry) => {
     setEditingId(entry.id);
-    const localDate = dayjs(entry.entry_date).format("YYYY-MM-DD");
+
     setForm({
-      date: localDate,
+      date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
       kgs: entry.kgs,
       rate: entry.rate,
       commission: entry.commission,
       item_name: entry.item_name || "",
       bags: entry.bags || "",
       paid_amount: entry.paid_amount || "",
+      already_paid: entry.already_paid || "",
     });
   };
 
@@ -169,18 +162,20 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       item_name: "",
       bags: "",
       paid_amount: "",
+      already_paid: "",
     });
   };
 
+  /** Delete */
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this entry?")) return;
+
     try {
       await deleteEntry(id);
-      toast.success("Entry deleted", { position: "top-right", transition: Slide });
-      await loadEntries(customerId);
-    } catch (err) {
-      console.error("Error deleting entry", err);
-      toast.error("Error deleting entry", { position: "top-right", transition: Slide });
+      toast.success("Entry deleted");
+      loadEntries(customerId);
+    } catch {
+      toast.error("Error deleting entry");
     }
   };
 
@@ -195,7 +190,9 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             value={customerId}
             onChange={(e) => {
               setCustomerId(e.target.value);
-              const selected = customers.find((c) => c.id === Number(e.target.value));
+              const selected = customers.find(
+                (c) => c.id === Number(e.target.value)
+              );
               onSelectCustomer && onSelectCustomer(selected);
             }}
           >
@@ -216,9 +213,13 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
 
           <input
             className="input"
+            type="text"
+            name="item_name"
             placeholder="Item Name"
             value={form.item_name}
-            onChange={(e) => setForm({ ...form, item_name: e.target.value })}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))
+            }
           />
 
           <input
@@ -242,7 +243,9 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             placeholder="Commission"
             type="number"
             value={form.commission}
-            onChange={(e) => setForm({ ...form, commission: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, commission: e.target.value })
+            }
           />
 
           <input
@@ -253,21 +256,38 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, bags: e.target.value })}
           />
 
-          {/* Paid amount (optional) */}
           <input
             className="input"
-            placeholder="Paid Amount (optional)"
+            placeholder="Paid Amount"
             type="number"
             value={form.paid_amount}
-            onChange={(e) => setForm({ ...form, paid_amount: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, paid_amount: e.target.value })
+            }
+          />
+
+          {/* NEW FIELD */}
+          <input
+            className="input"
+            placeholder="Already Paid"
+            type="number"
+            value={form.already_paid}
+            onChange={(e) =>
+              setForm({ ...form, already_paid: e.target.value })
+            }
           />
 
           <div style={{ display: "flex", gap: "8px" }}>
             <button className="btn" type="submit">
               {editingId ? "Save Changes" : "Add Entry"}
             </button>
+
             {editingId && (
-              <button type="button" className="btn ghost" onClick={handleCancel}>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={handleCancel}
+              >
                 Cancel
               </button>
             )}
@@ -275,6 +295,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         </form>
       </div>
 
+      {/* TABLE */}
       <div className="card" style={{ marginTop: 12 }}>
         <h2>Entries</h2>
 
@@ -292,14 +313,16 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                 <th>Comm</th>
                 <th>Amount</th>
                 <th>Paid</th>
+                <th>Already Paid</th>
                 <th>Remaining</th>
                 <th>Actions</th>
               </tr>
             </thead>
+
             <tbody>
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan="10" style={{ textAlign: "center", padding: 12 }}>
+                  <td colSpan="11" style={{ padding: 12, textAlign: "center" }}>
                     No entries found
                   </td>
                 </tr>
@@ -312,15 +335,25 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                     <td>{e.kgs}</td>
                     <td>{e.rate}</td>
                     <td>{e.commission}</td>
-                    <td>₹{Number(e.amount || 0).toFixed(2)}</td>
-                    <td>₹{Number(e.paid_amount || 0).toFixed(2)}</td>
-                    <td>₹{Number(e.remaining || 0).toFixed(2)}</td>
+                    <td>₹{Number(e.amount).toFixed(2)}</td>
+                    <td>₹{Number(e.paid_amount).toFixed(2)}</td>
+
+                    {/* NEW FIELD */}
+                    <td>₹{Number(e.already_paid || 0).toFixed(2)}</td>
+
+                    <td>₹{Number(e.remaining).toFixed(2)}</td>
 
                     <td style={{ display: "flex", gap: "6px" }}>
-                      <button className="btn ghost" onClick={() => handleEdit(e)}>
+                      <button
+                        className="btn ghost"
+                        onClick={() => handleEdit(e)}
+                      >
                         Edit
                       </button>
-                      <button className="btn ghost" onClick={() => handleDelete(e.id)}>
+                      <button
+                        className="btn ghost"
+                        onClick={() => handleDelete(e.id)}
+                      >
                         Delete
                       </button>
                     </td>
