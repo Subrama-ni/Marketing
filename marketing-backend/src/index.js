@@ -4,11 +4,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import pkg from 'pg';
 
-// 🧩 Routes
+// Routes
 import customerRoutes from './routes/customerRoutes.js';
 import entryRoutes from './routes/entryRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
-import authRoutes from './routes/authRoutes.js'; // Authentication
+import authRoutes from './routes/authRoutes.js';
 
 dotenv.config();
 
@@ -48,9 +48,7 @@ async function initDB() {
   try {
     console.log("⏳ Initializing database...");
 
-    /* -------------------------
-       USERS TABLE
-    --------------------------*/
+    /* USERS */
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -61,9 +59,7 @@ async function initDB() {
       );
     `);
 
-    /* -------------------------
-       CUSTOMERS TABLE
-    --------------------------*/
+    /* CUSTOMERS */
     await pool.query(`
       CREATE TABLE IF NOT EXISTS customers (
         id SERIAL PRIMARY KEY,
@@ -75,9 +71,7 @@ async function initDB() {
       );
     `);
 
-    /* -------------------------
-       ENTRIES TABLE
-    --------------------------*/
+    /* ENTRIES (❗ already_paid REMOVED here to avoid duplication) */
     await pool.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id SERIAL PRIMARY KEY,
@@ -92,28 +86,24 @@ async function initDB() {
         amount NUMERIC(12,2) DEFAULT 0,
         paid_amount NUMERIC(12,2) DEFAULT 0,
         remaining NUMERIC(12,2) DEFAULT 0,
-        already_paid NUMERIC(12,2) DEFAULT 0,  -- ⭐ NEW COLUMN
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // Ensure already_paid exists
+    /* ADD already_paid column ONLY IF missing */
     await pool.query(`
       DO $$
       BEGIN
         IF NOT EXISTS (
-          SELECT column_name 
-          FROM information_schema.columns 
+          SELECT 1 FROM information_schema.columns 
           WHERE table_name='entries' AND column_name='already_paid'
         ) THEN
           ALTER TABLE entries ADD COLUMN already_paid NUMERIC(12,2) DEFAULT 0;
         END IF;
-      END$$;
+      END $$;
     `);
 
-    /* -------------------------
-       PAYMENTS TABLE
-    --------------------------*/
+    /* PAYMENTS */
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY,
