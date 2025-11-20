@@ -1,14 +1,14 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import path from 'path';
-import pkg from 'pg';
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
+import pkg from "pg";
 
 // Routes
-import customerRoutes from './routes/customerRoutes.js';
-import entryRoutes from './routes/entryRoutes.js';
-import paymentRoutes from './routes/paymentRoutes.js';
-import authRoutes from './routes/authRoutes.js';
+import customerRoutes from "./routes/customerRoutes.js";
+import entryRoutes from "./routes/entryRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 
 dotenv.config();
 
@@ -26,76 +26,66 @@ const pool = new Pool({
 const app = express();
 
 /* ======================================================
-   CORS CONFIG
+   FIXED: UNIVERSAL CORS (WORKS WITH LOCAL + RENDER)
 ====================================================== */
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",").map((url) => url.trim())
-  : ["http://localhost:3000", "http://localhost:4001"];
-
 app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: true,
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+app.options("*", cors()); // important for preflight
 
 app.use(express.json());
 
 /* ======================================================
-   DATABASE INITIALIZATION
+   SAFE DATABASE INIT (NO CRASH ON ERROR)
 ====================================================== */
 async function initDB() {
   try {
-    console.log("⏳ Initializing database...");
+    console.log("⏳ Initializing DB…");
 
-    /* USERS */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(150) UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    await pool.query(`CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100),
+      email VARCHAR(150) UNIQUE,
+      password TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
 
-    /* CUSTOMERS */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS customers (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        name TEXT NOT NULL,
-        phone TEXT,
-        serial INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    await pool.query(`CREATE TABLE IF NOT EXISTS customers (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      name TEXT,
+      phone TEXT,
+      serial INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
 
-    /* ENTRIES (❗ already_paid REMOVED here to avoid duplication) */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS entries (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
-        entry_date TIMESTAMP NOT NULL,
-        item_name TEXT,
-        bags NUMERIC(10,2) DEFAULT 0,
-        kgs NUMERIC(10,2),
-        rate NUMERIC(10,2),
-        commission NUMERIC(10,2) DEFAULT 0,
-        amount NUMERIC(12,2) DEFAULT 0,
-        paid_amount NUMERIC(12,2) DEFAULT 0,
-        remaining NUMERIC(12,2) DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    await pool.query(`CREATE TABLE IF NOT EXISTS entries (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      customer_id INTEGER REFERENCES customers(id),
+      entry_date TIMESTAMP NOT NULL,
+      item_name TEXT,
+      bags NUMERIC(10,2) DEFAULT 0,
+      kgs NUMERIC(10,2),
+      rate NUMERIC(10,2),
+      commission NUMERIC(10,2) DEFAULT 0,
+      amount NUMERIC(12,2) DEFAULT 0,
+      paid_amount NUMERIC(12,2) DEFAULT 0,
+      remaining NUMERIC(12,2) DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
 
-    /* ADD already_paid column ONLY IF missing */
+    // Add already_paid if missing
     await pool.query(`
       DO $$
       BEGIN
         IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns 
+          SELECT 1 FROM information_schema.columns
           WHERE table_name='entries' AND column_name='already_paid'
         ) THEN
           ALTER TABLE entries ADD COLUMN already_paid NUMERIC(12,2) DEFAULT 0;
@@ -103,32 +93,28 @@ async function initDB() {
       END $$;
     `);
 
-    /* PAYMENTS */
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS payments (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
-        amount NUMERIC(12,2) NOT NULL,
-        mode TEXT,
-        bag_amount NUMERIC(12,2) DEFAULT 0,
-        from_date TIMESTAMP,
-        to_date TIMESTAMP,
-        payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    await pool.query(`CREATE TABLE IF NOT EXISTS payments (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      customer_id INTEGER REFERENCES customers(id),
+      amount NUMERIC(12,2),
+      mode TEXT,
+      bag_amount NUMERIC(12,2) DEFAULT 0,
+      from_date TIMESTAMP,
+      to_date TIMESTAMP,
+      payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
 
-    console.log("✅ Database ready");
+    console.log("✅ DB Ready");
   } catch (err) {
-    console.error("❌ Database init error:", err);
+    console.error("❌ DB INIT ERROR (IGNORED):", err.message);
   }
 }
 
-await initDB();
+initDB();
 
 /* ======================================================
-   API ROUTES
+   ROUTES
 ====================================================== */
 app.use("/api/auth", authRoutes);
 app.use("/api/customers", customerRoutes);
@@ -141,16 +127,19 @@ app.use("/api/payments", paymentRoutes);
 app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
 /* ======================================================
-   STATIC DIRECTORY FOR PDF BILLS
+   STATIC BILL FILES
 ====================================================== */
 const __dirname = path.resolve();
 app.use("/bills", express.static(path.join(__dirname, "bills")));
 
 /* ======================================================
-   GLOBAL ERROR HANDLER
+   GLOBAL ERROR HANDLER (CORS INCLUDED)
 ====================================================== */
 app.use((err, req, res, next) => {
-  console.error("🔥 Unhandled Server Error:", err);
+  console.error("🔥 SERVER ERROR:", err.message);
+
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
   res.status(500).json({ message: "Internal Server Error" });
 });
 
@@ -158,9 +147,8 @@ app.use((err, req, res, next) => {
    START SERVER
 ====================================================== */
 const PORT = process.env.PORT || 4000;
-
 app.listen(PORT, "0.0.0.0", () =>
-  console.log(`🚀 Backend running on port ${PORT}`)
+  console.log(`🚀 Server Live on port ${PORT}`)
 );
 
 export default pool;
