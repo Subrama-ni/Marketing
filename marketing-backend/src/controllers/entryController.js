@@ -49,7 +49,7 @@ export const createEntry = async (req, res) => {
         customerId,
         userId,
         dateObj,
-        item_name || null,
+        (item_name && item_name.trim()) ? item_name.trim() : null,
         bagCount,
         kgs,
         rate,
@@ -134,7 +134,7 @@ export const updateEntry = async (req, res) => {
         ? Number(paid_amount)
         : Number(old.rows[0].paid_amount);
 
-    const alreadyPaid =
+    const newAlreadyPaid =
       already_paid !== undefined
         ? Number(already_paid)
         : Number(old.rows[0].already_paid);
@@ -154,11 +154,11 @@ export const updateEntry = async (req, res) => {
         rate,
         comm,
         amount,
-        item_name || null,
+        (item_name && item_name.trim()) ? item_name.trim() : null,
         bagCount,
         newPaid,
         newRemaining,
-        alreadyPaid,
+        newAlreadyPaid,
         id,
         userId,
       ]

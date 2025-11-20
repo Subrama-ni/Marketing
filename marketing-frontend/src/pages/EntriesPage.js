@@ -25,7 +25,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     commission: "",
     item_name: "",
     bags: "",
-    paid_amount: "",
     already_paid: "",
   });
 
@@ -105,7 +104,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       commission: Number(form.commission || 0),
       item_name: form.item_name || "",
       bags: Number(form.bags || 0),
-      paid_amount: Number(form.paid_amount || 0),
       already_paid: Number(form.already_paid || 0),
     };
 
@@ -125,7 +123,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         commission: "",
         item_name: "",
         bags: "",
-        paid_amount: "",
         already_paid: "",
       });
 
@@ -147,7 +144,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       commission: entry.commission,
       item_name: entry.item_name || "",
       bags: entry.bags || "",
-      paid_amount: entry.paid_amount || "",
       already_paid: entry.already_paid || "",
     });
   };
@@ -161,7 +157,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       commission: "",
       item_name: "",
       bags: "",
-      paid_amount: "",
       already_paid: "",
     });
   };
@@ -256,17 +251,8 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, bags: e.target.value })}
           />
 
-          <input
-            className="input"
-            placeholder="Paid Amount"
-            type="number"
-            value={form.paid_amount}
-            onChange={(e) =>
-              setForm({ ...form, paid_amount: e.target.value })
-            }
-          />
-
-          {/* NEW FIELD */}
+          {/* Removed paid_amount field */}
+          {/* Already Paid remains */}
           <input
             className="input"
             placeholder="Already Paid"
@@ -337,10 +323,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                     <td>{e.commission}</td>
                     <td>₹{Number(e.amount).toFixed(2)}</td>
                     <td>₹{Number(e.paid_amount).toFixed(2)}</td>
-
-                    {/* NEW FIELD */}
                     <td>₹{Number(e.already_paid || 0).toFixed(2)}</td>
-
                     <td>₹{Number(e.remaining).toFixed(2)}</td>
 
                     <td style={{ display: "flex", gap: "6px" }}>
