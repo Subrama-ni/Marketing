@@ -1,4 +1,3 @@
-// src/pages/PaymentsPage.js
 import React, { useEffect, useState, useCallback } from "react";
 import {
   getCustomers,
@@ -6,6 +5,7 @@ import {
   makePayment,
   getPaymentHistory,
   updateEntry,
+  getEntriesByCustomer,
 } from "../api";
 import dayjs from "dayjs";
 import jsPDF from "jspdf";
@@ -14,8 +14,12 @@ import autoTable from "jspdf-autotable";
 import "../App.css";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { useBillingMode } from "../context/BillingModeContext";
+
+const ONLY_SHOW_CUSTOMERS_WITH_ENTRIES = false;
 
 export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
+  const { billingMode } = useBillingMode(); // "farmer" | "luggage"
   const [customers, setCustomers] = useState([]);
   const [customerId, setCustomerId] = useState(selectedCustomer?.id || "");
 
@@ -49,25 +53,29 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   // Already Paid (extracted from backend)
   const [alreadyPaid, setAlreadyPaid] = useState(0);
 
+  // Luggage total (for luggage mode)
+  const [luggageTotal, setLuggageTotal] = useState(0);
+
   const [selectedUnpaidIds, setSelectedUnpaidIds] = useState(new Set());
 
   /* --------------------- Helpers ------------------------ */
 
-  const computeFinalPayable = (remaining, commission, bags, alreadyPaid) => {
-    return Math.max(
-      Number(remaining) -
-        Number(commission) +
-        Number(bags) -
-        Number(alreadyPaid),
-      0
-    );
-  };
+  const computeFinalPayable = useCallback(
+    (remaining, commission, bags, alreadyPaidVal, luggage) => {
+      if (billingMode === "luggage") {
+        return Math.max(
+          Number(remaining) - Number(commission) - Number(alreadyPaidVal || 0) - Number(luggage || 0),
+          0
+        );
+      }
+      return Math.max(Number(remaining) - Number(commission) + Number(bags) - Number(alreadyPaidVal), 0);
+    },
+    [billingMode]
+  );
 
   const toISODate = useCallback((dateStr) => {
     if (!dateStr) return "";
-    return dayjs(dateStr).isValid()
-      ? dayjs(dateStr).format("YYYY-MM-DD")
-      : "";
+    return dayjs(dateStr).isValid() ? dayjs(dateStr).format("YYYY-MM-DD") : "";
   }, []);
 
   const formatDateDDMMYYYY = useCallback((dateStr) => {
@@ -76,24 +84,55 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     return d.isValid() ? d.format("DD/MM/YYYY") : dateStr;
   }, []);
 
-  /* --------------------- Load Customers ------------------------ */
+  /* --------------------- Load Customers (filtered by billingMode) ------------------------ */
+
+  const loadCustomers = useCallback(
+  async (mode = billingMode) => {
+    try {
+      const res = await getCustomers();
+      const all = res.data || [];
+
+      if (!ONLY_SHOW_CUSTOMERS_WITH_ENTRIES) {
+        setCustomers(all);
+        return;
+      }
+
+      const checks = await Promise.all(
+        all.map(async (c) => {
+          try {
+            const r = await getEntriesByCustomer(c.id, mode);
+            const entriesForMode = r.data || [];
+            return { customer: c, hasEntries: entriesForMode.length > 0 };
+          } catch (err) {
+            return { customer: c, hasEntries: false };
+          }
+        })
+      );
+
+      const filtered = checks.filter((x) => x.hasEntries).map((x) => x.customer);
+      setCustomers(filtered);
+    } catch (e) {
+      console.error("❌ Error loading customers:", e);
+    }
+  },
+  [billingMode]   // ✅ ONLY this
+);
+
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await getCustomers();
-        setCustomers(res.data || []);
-      } catch (e) {
-        console.error("❌ Error loading customers:", e);
-      }
-    })();
-  }, []);
+    loadCustomers();
+  }, [loadCustomers]);
+
+  useEffect(() => {
+    loadCustomers(billingMode);
+  }, [billingMode, loadCustomers]);
 
   useEffect(() => {
     if (selectedCustomer) {
       setCustomerId(selectedCustomer.id);
       fetchHistory(selectedCustomer.id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer]);
 
   /* --------------------- Fetch Entries Range ------------------------ */
@@ -108,7 +147,8 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       const res = await getEntriesForPayment(
         customerId,
         toISODate(fromDate),
-        toISODate(toDate)
+        toISODate(toDate),
+        billingMode
       );
 
       const data = res.data?.entries || [];
@@ -117,8 +157,9 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         const kgs = Number(e.kgs || 0);
         const rate = Number(e.rate || 0);
         const commission = Number(e.commission || 0);
+        const luggageAmount = Number(e.luggage_amount || 0);
 
-        const amount = (kgs - commission) * rate;
+        const amount = billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate;
         const paid = Number(e.paid_amount || 0);
         const remaining = Math.max(amount - paid, 0);
 
@@ -133,39 +174,26 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           remaining,
           bags: Number(e.bags || 0),
           item_name: e.item_name || "",
-          already_paid: Number(e.already_paid || 0), // ← FIXED A: read from backend
+          already_paid: Number(e.already_paid || 0),
+          luggage_amount: luggageAmount,
         };
       });
 
-      /* Block fully paid dates */
       const blocked = new Set();
       normalized.forEach((e) => {
         if (e.remaining === 0) blocked.add(e.entry_date);
       });
 
-      /* Totals */
       const totalAmount = normalized.reduce((s, e) => s + e.amount, 0);
-      const totalPaid = normalized.reduce(
-        (s, e) => s + Math.min(e.paid_amount, e.amount),
-        0
-      );
+      const totalPaid = normalized.reduce((s, e) => s + Math.min(e.paid_amount, e.amount), 0);
       const remainingOutside = Math.max(totalAmount - totalPaid, 0);
 
-      /* Only unpaid entries */
       const unpaidEntries = normalized.filter((e) => e.remaining > 0);
-
       const defaultSelected = new Set(unpaidEntries.map((e) => e.id));
 
-      const totalBagsUnpaid = unpaidEntries.reduce(
-        (s, e) => s + Number(e.bags || 0),
-        0
-      );
-
-      /* FIXED A: extract already_paid properly */
-      const totalAlreadyPaidUnpaid = unpaidEntries.reduce(
-        (s, e) => s + Number(e.already_paid || 0),
-        0
-      );
+      const totalBagsUnpaid = unpaidEntries.reduce((s, e) => s + Number(e.bags || 0), 0);
+      const totalAlreadyPaidUnpaid = unpaidEntries.reduce((s, e) => s + Number(e.already_paid || 0), 0);
+      const totalLuggageUnpaid = unpaidEntries.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
 
       setBlockedDates(blocked);
 
@@ -176,26 +204,22 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
       setScheduledEntries(normalized);
       setSelectedUnpaidIds(defaultSelected);
-
       setBagCount(totalBagsUnpaid);
-      setBagAmountPer(0);
-      setBagTotal(0);
-
-      setCommissionPercent("");
+      setAlreadyPaid(totalAlreadyPaidUnpaid);
+      setLuggageTotal(totalLuggageUnpaid);
       setCommissionAmount(0);
 
-      setAlreadyPaid(totalAlreadyPaidUnpaid); // 🔥 FIXED A
-      setPayableAfterCommission(remainingOutside);
-
-      /* FIXED B: Apply Payable Formula */
-      const final = computeFinalPayable(
-        remainingOutside,
+      // initial payable should be based on selected (which is all unpaid by default)
+      const remainingSelected = unpaidEntries.reduce((s, e) => s + e.remaining, 0);
+      const initialPayable = computeFinalPayable(
+        remainingSelected,
         0,
         0,
-        totalAlreadyPaidUnpaid
+        totalAlreadyPaidUnpaid,
+        totalLuggageUnpaid
       );
 
-      setPayAmount(final);
+      setPayAmount(initialPayable);
     } catch (err) {
       console.error("❌ Fetch entries error:", err);
       toast.error("Error fetching entries");
@@ -220,35 +244,23 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   useEffect(() => {
     if (!entriesData.entries?.length) return;
 
-    const unpaidSelected = entriesData.entries.filter(
-      (e) => e.remaining > 0 && selectedUnpaidIds.has(e.id)
-    );
+    // only consider selected unpaid entries for calculations
+    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
 
-    const autoBags = unpaidSelected.reduce(
-      (s, e) => s + Number(e.bags || 0),
-      0
-    );
-
-    const autoAlready = unpaidSelected.reduce(
-      (s, e) => s + Number(e.already_paid || 0),
-      0
-    );
+    const autoBags = unpaidSelected.reduce((s, e) => s + Number(e.bags || 0), 0);
+    const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
+    const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
+    const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
 
     setBagCount(autoBags);
     setAlreadyPaid(autoAlready);
+    setLuggageTotal(autoLuggage);
 
     const bagsTotal = autoBags * Number(bagAmountPer || 0);
     setBagTotal(Number(bagsTotal.toFixed(2)));
 
-    const remaining = Number(entriesData.totals.remainingOutside || 0);
-
-    /* FIXED B: Recompute Payable */
-    const final = computeFinalPayable(
-      remaining,
-      commissionAmount,
-      bagsTotal,
-      autoAlready
-    );
+    // Recompute Payable based on selected unpaid only (this fixes earlier bug)
+    const final = computeFinalPayable(remainingSelected, commissionAmount, bagsTotal, autoAlready, autoLuggage);
 
     setPayAmount(final);
   }, [
@@ -257,50 +269,51 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     bagAmountPer,
     commissionAmount,
     entriesData.totals.remainingOutside,
+    billingMode,
+    computeFinalPayable,
   ]);
 
   /* --------------------- Commission Apply ------------------------ */
 
   const handleCommissionLoad = () => {
-    const remaining = Number(entriesData.totals.remainingOutside || 0);
+    // compute remaining from selected unpaid entries, not full totals
+    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
+    const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
+
     const percent = Number(commissionPercent || 0);
+    if (percent < 0 || percent > 100) return toast.error("Enter valid commission %");
 
-    if (percent < 0 || percent > 100)
-      return toast.error("Enter valid commission %");
-
-    const commissionValue = Math.round((remaining * percent) / 100);
-    const payable = remaining - commissionValue;
+    const commissionValue = Math.round((remainingSelected * percent) / 100);
+    const payable = Math.max(remainingSelected - commissionValue, 0);
 
     setCommissionAmount(commissionValue);
     setPayableAfterCommission(payable);
 
-    /* Apply final formula */
-    const final = computeFinalPayable(
-      remaining,
-      commissionValue,
-      bagTotal,
-      alreadyPaid
-    );
+    // Recompute final payable using bags/already/luggage from selected
+    const autoBags = unpaidSelected.reduce((s, e) => s + Number(e.bags || 0), 0);
+    const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
+    const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
+    const bagsTotal = autoBags * Number(bagAmountPer || 0);
 
+    const final = computeFinalPayable(remainingSelected, commissionValue, bagsTotal, autoAlready, autoLuggage);
     setPayAmount(final);
   };
 
   /* --------------------- Bag Charges ------------------------ */
 
   const handleBagLoad = () => {
-    const bags = Number(bagCount) * Number(bagAmountPer || 0);
-    const bagsTotal = Number(bags.toFixed(2));
-    setBagTotal(bagsTotal);
+    // bag total should be based on selected unpaid entries (bagCount is expected to be user override)
+    const bagsTotal = Number(bagCount) * Number(bagAmountPer || 0);
+    const bagsTotalRounded = Number(bagsTotal.toFixed(2));
+    setBagTotal(bagsTotalRounded);
 
-    const remaining = Number(entriesData.totals.remainingOutside || 0);
+    // compute remaining from selected unpaid entries
+    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
+    const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
+    const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
+    const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
 
-    /* Apply formula */
-    const final = computeFinalPayable(
-      remaining,
-      commissionAmount,
-      bagsTotal,
-      alreadyPaid
-    );
+    const final = computeFinalPayable(remainingSelected, commissionAmount, bagsTotalRounded, autoAlready, autoLuggage);
 
     setPayAmount(final);
   };
@@ -316,9 +329,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   };
 
   const selectAllUnpaid = () => {
-    const all = entriesData.entries
-      .filter((e) => e.remaining > 0)
-      .map((e) => e.id);
+    const all = entriesData.entries.filter((e) => e.remaining > 0).map((e) => e.id);
     setSelectedUnpaidIds(new Set(all));
   };
 
@@ -329,11 +340,11 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   const handlePay = async () => {
     if (!customerId) return toast.warn("Select customer");
     if (!fromDate || !toDate) return toast.warn("Select range");
-    if (Number(payAmount) <= 0)
-      return toast.error("Invalid payment value");
+    if (Number(payAmount) <= 0) return toast.error("Invalid payment value");
 
-    const unpaid = entriesData.entries.filter((e) => e.remaining > 0);
-    if (!unpaid.length) return toast.info("Already fully paid.");
+    // Only consider selected unpaid entries for actual payment
+    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
+    if (!unpaidSelected.length) return toast.info("No unpaid entries selected.");
 
     try {
       setLoading(true);
@@ -344,6 +355,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         paymentMode: mode,
         fromDate: toISODate(fromDate),
         toDate: toISODate(toDate),
+        billingType: billingMode, // include billing type
         meta: {
           commissionPercent: Number(commissionPercent || 0),
           commissionAmount: Number(commissionAmount || 0),
@@ -351,14 +363,15 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           bagAmountPer: Number(bagAmountPer || 0),
           bagTotal: Number(bagTotal || 0),
           alreadyPaid,
+          luggageTotal,
           includedEntryIds: Array.from(selectedUnpaidIds),
         },
       };
 
       await makePayment(payload);
 
-      /* Mark entries as fully paid */
-      for (const entry of unpaid) {
+      /* Mark selected entries as fully paid */
+      for (const entry of unpaidSelected) {
         const upd = {
           customerId: entry.customer_id,
           entry_date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
@@ -367,12 +380,15 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           commission: entry.commission,
           item_name: entry.item_name,
           bags: entry.bags,
+          luggage_amount: entry.luggage_amount,
           paid_amount: entry.amount,
           remaining: 0,
         };
         await updateEntry(entry.id, upd);
       }
 
+      // reload customers & history after payment
+      await loadCustomers(billingMode);
       await fetchHistory(customerId);
 
       toast.success("Payment successful!");
@@ -403,9 +419,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
     if (historyRecord) {
       doc.text(
-        `Period: ${formatDateDDMMYYYY(historyRecord.from_date)} → ${formatDateDDMMYYYY(
-          historyRecord.to_date
-        )}`,
+        `Period: ${formatDateDDMMYYYY(historyRecord.from_date)} → ${formatDateDDMMYYYY(historyRecord.to_date)}`,
         14,
         42
       );
@@ -422,13 +436,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       return;
     }
 
-    doc.text(
-      `Period: ${formatDateDDMMYYYY(fromDate)} → ${formatDateDDMMYYYY(
-        toDate
-      )}`,
-      14,
-      42
-    );
+    doc.text(`Period: ${formatDateDDMMYYYY(fromDate)} → ${formatDateDDMMYYYY(toDate)}`, 14, 42);
     doc.text(`Mode: ${mode}`, 14, 48);
 
     const rows = entriesData.entries.map((e) => [
@@ -436,8 +444,8 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       e.item_name || "-",
       e.kgs,
       e.rate,
-      e.commission,
-      e.bags,
+      billingMode === "luggage" ? "-" : e.commission,
+      billingMode === "luggage" ? `₹${Number(e.luggage_amount || 0).toFixed(2)}` : e.bags,
       `₹${e.amount.toFixed(2)}`,
       `₹${e.paid_amount.toFixed(2)}`,
       `₹${e.remaining.toFixed(2)}`,
@@ -445,30 +453,14 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
     autoTable(doc, {
       startY: 55,
-      head: [
-        [
-          "Date",
-          "Item",
-          "Kgs",
-          "Rate",
-          "Comm",
-          "Bags",
-          "Amount",
-          "Paid",
-          "Remaining",
-        ],
-      ],
+      head: [["Date", "Item", "Kgs", "Rate", "Comm", "Bags", "Amount", "Paid", "Remaining"]],
       body: rows,
       styles: { fontSize: 10 },
     });
 
     let y = doc.lastAutoTable.finalY + 10;
 
-    doc.text(
-      `Remaining Total: ₹${entriesData.totals.remainingOutside}`,
-      14,
-      y
-    );
+    doc.text(`Remaining Total: ₹${entriesData.totals.remainingOutside}`, 14, y);
     y += 10;
 
     if (commissionAmount > 0) {
@@ -476,12 +468,13 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       y += 8;
     }
 
-    if (bagTotal > 0) {
-      doc.text(
-        `Bags (${bagCount} × ₹${bagAmountPer}): +₹${bagTotal}`,
-        14,
-        y
-      );
+    if (bagTotal > 0 && billingMode !== "luggage") {
+      doc.text(`Bags (${bagCount} × ₹${bagAmountPer}): +₹${bagTotal}`, 14, y);
+      y += 8;
+    }
+
+    if (luggageTotal > 0 && billingMode === "luggage") {
+      doc.text(`Luggage Total: -₹${luggageTotal}`, 14, y);
       y += 8;
     }
 
@@ -510,7 +503,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     <div className="col">
       {/* --- SELECTION --- */}
       <div className="card">
-        <h2>💰 Payments Page</h2>
+        <h2>💰 Payments Page ({billingMode === "luggage" ? "Luggage" : "Farmer"})</h2>
 
         <div className="form-row">
           <label>Customer:</label>
@@ -547,12 +540,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           />
 
           <label>To:</label>
-          <input
-            className="input"
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-          />
+          <input className="input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
 
           <button className="btn" onClick={fetchEntries} disabled={loading}>
             {loading ? "Loading..." : "Load Entries"}
@@ -582,8 +570,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                 <th>Item</th>
                 <th>Kgs</th>
                 <th>Rate</th>
-                <th>Comm</th>
-                <th>Bags</th>
+                {billingMode === "luggage" ? <th>Luggage</th> : <><th>Comm</th><th>Bags</th></>}
                 <th>Amount</th>
                 <th>Paid</th>
                 <th>Remaining</th>
@@ -596,11 +583,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                   <tr key={e.id}>
                     <td>
                       {isUnpaid ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedUnpaidIds.has(e.id)}
-                          onChange={() => toggleUnpaidSelection(e.id)}
-                        />
+                        <input type="checkbox" checked={selectedUnpaidIds.has(e.id)} onChange={() => toggleUnpaidSelection(e.id)} />
                       ) : (
                         <input type="checkbox" disabled />
                       )}
@@ -609,8 +592,16 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                     <td>{e.item_name || "-"}</td>
                     <td>{e.kgs}</td>
                     <td>{e.rate}</td>
-                    <td>{e.commission}</td>
-                    <td>{e.bags}</td>
+
+                    {billingMode === "luggage" ? (
+                      <td>₹{Number(e.luggage_amount || 0).toFixed(2)}</td>
+                    ) : (
+                      <>
+                        <td>{e.commission}</td>
+                        <td>{e.bags}</td>
+                      </>
+                    )}
+
                     <td>₹{e.amount.toFixed(2)}</td>
                     <td>₹{e.paid_amount.toFixed(2)}</td>
                     <td>₹{e.remaining.toFixed(2)}</td>
@@ -622,77 +613,65 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         </div>
       )}
 
-      {/* --- COMMISSION --- */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <h3>🏦 Commission</h3>
-        <div style={{ display: "flex", gap: 12 }}>
-          <input
-            className="input"
-            placeholder="Commission %"
-            type="number"
-            value={commissionPercent}
-            onChange={(e) => setCommissionPercent(e.target.value)}
-          />
-          <button className="btn" onClick={handleCommissionLoad}>
-            Apply
-          </button>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <div>Remaining: ₹{entriesData.totals.remainingOutside}</div>
-          <div>Commission Amount: ₹{commissionAmount}</div>
-          <div>Payable After Commission: ₹{payableAfterCommission}</div>
-        </div>
-      </div>
-
-      {/* --- BAG SECTION --- */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <h3>🧺 Bag Charges</h3>
-
-        <div style={{ display: "flex", gap: 12 }}>
-          <div>
-            <label>Bags</label>
+      {/* --- COMMISSION (hide in luggage mode) --- */}
+      {billingMode !== "luggage" && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3>🏦 Commission</h3>
+          <div style={{ display: "flex", gap: 12 }}>
             <input
               className="input"
+              placeholder="Commission %"
               type="number"
-              value={bagCount}
-              onChange={(e) => setBagCount(Number(e.target.value))}
+              value={commissionPercent}
+              onChange={(e) => setCommissionPercent(e.target.value)}
             />
+            <button className="btn" onClick={handleCommissionLoad}>
+              Apply
+            </button>
           </div>
 
-          <div>
-            <label>Amount per Bag</label>
-            <input
-              className="input"
-              type="number"
-              value={bagAmountPer}
-              onChange={(e) => setBagAmountPer(Number(e.target.value))}
-            />
+          <div style={{ marginTop: 10 }}>
+            <div>Remaining: ₹{entriesData.totals.remainingOutside}</div>
+            <div>Commission Amount: ₹{commissionAmount}</div>
+            <div>Payable After Commission: ₹{payableAfterCommission}</div>
           </div>
-
-          <button className="btn" onClick={handleBagLoad}>
-            Calculate
-          </button>
         </div>
+      )}
 
-        <div style={{ marginTop: 10 }}>Bag Total: ₹{bagTotal}</div>
-      </div>
+      {/* --- BAG SECTION (hide in luggage mode) --- */}
+      {billingMode !== "luggage" && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3>🧺 Bag Charges</h3>
+
+          <div style={{ display: "flex", gap: 12 }}>
+            <div>
+              <label>Bags</label>
+              <input className="input" type="number" value={bagCount} onChange={(e) => setBagCount(Number(e.target.value))} />
+            </div>
+
+            <div>
+              <label>Amount per Bag</label>
+              <input className="input" type="number" value={bagAmountPer} onChange={(e) => setBagAmountPer(Number(e.target.value))} />
+            </div>
+
+            <button className="btn" onClick={handleBagLoad}>
+              Calculate
+            </button>
+          </div>
+
+          <div style={{ marginTop: 10 }}>Bag Total: ₹{bagTotal}</div>
+        </div>
+      )}
 
       {/* --- ALREADY PAID --- */}
       <div className="card" style={{ marginTop: 16 }}>
         <h3>💵 Already Paid (auto from unpaid entries)</h3>
 
-        <input
-          className="input"
-          type="number"
-          value={alreadyPaid.toFixed(2)}
-          disabled
-          style={{ maxWidth: 220 }}
-        />
+        <input className="input" type="number" value={alreadyPaid.toFixed(2)} disabled style={{ maxWidth: 220 }} />
 
-        <div style={{ fontSize: 13, color: "#777" }}>
-          (Auto-extracted and auto-deducted)
-        </div>
+        <div style={{ fontSize: 13, color: "#777" }}>(Auto-extracted and auto-deducted)</div>
+
+        {billingMode === "luggage" && <div style={{ marginTop: 8 }}>Luggage Total: ₹{luggageTotal.toFixed(2)}</div>}
       </div>
 
       {/* --- FINAL PAYMENT --- */}
@@ -701,19 +680,9 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
         <div style={{ display: "flex", gap: 12 }}>
           <label>Payable</label>
-          <input
-            className="input"
-            type="number"
-            value={payAmount}
-            onChange={(e) => setPayAmount(Number(e.target.value))}
-            style={{ maxWidth: 200 }}
-          />
+          <input className="input" type="number" value={payAmount} onChange={(e) => setPayAmount(Number(e.target.value))} style={{ maxWidth: 200 }} />
 
-          <select
-            className="input"
-            value={mode}
-            onChange={(e) => setMode(e.target.value)}
-          >
+          <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
             <option value="cash">Cash</option>
             <option value="upi">UPI</option>
             <option value="qr">QR</option>
@@ -760,8 +729,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                   <td>₹{h.amount}</td>
                   <td>{h.mode}</td>
                   <td>
-                    {formatDateDDMMYYYY(h.from_date)} →{" "}
-                    {formatDateDDMMYYYY(h.to_date)}
+                    {formatDateDDMMYYYY(h.from_date)} → {formatDateDDMMYYYY(h.to_date)}
                   </td>
                   <td>
                     <button className="btn ghost" onClick={() => generatePDF(h)}>
@@ -769,10 +737,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                     </button>
                   </td>
                   <td>
-                    <button
-                      className="btn ghost"
-                      onClick={() => generatePDF(h, true)}
-                    >
+                    <button className="btn ghost" onClick={() => generatePDF(h, true)}>
                       Print
                     </button>
                   </td>

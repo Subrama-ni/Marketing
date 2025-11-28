@@ -1,68 +1,103 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   getCustomers,
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  getEntriesByCustomer,
 } from "../api";
 import { toast } from "react-toastify";
+import { useBillingMode } from "../context/BillingModeContext";
 
 export default function CustomersPage({ onSelectCustomer }) {
+  const { billingMode } = useBillingMode();
+
   const [customers, setCustomers] = useState([]);
+  const [filteredCustomers, setFilteredCustomers] = useState([]);
+
   const [form, setForm] = useState({ name: "", phone: "", serial: "" });
   const [editingId, setEditingId] = useState(null);
 
-  // Validation state
   const [errors, setErrors] = useState({
     name: "",
     serial: "",
     phone: "",
   });
 
-  const fetch = async () => {
+  /* ------------------------------------------------
+        FETCH CUSTOMERS + AUTO-SERIAL (NO WARNINGS)
+  ------------------------------------------------ */
+  const fetchCustomers = useCallback(async () => {
     try {
       const res = await getCustomers();
-      setCustomers(res.data || []);
+      const all = res.data || [];
+
+      // Filter by billing mode
+      const list = [];
+      for (let c of all) {
+        try {
+          const enr = await getEntriesByCustomer(c.id, billingMode);
+          if (enr.data.length > 0) list.push(c);
+        } catch {}
+      }
+
+      setCustomers(list);
+      setFilteredCustomers(list);
+
+      // Auto-serial only if NOT editing
+      if (!editingId) {
+        const maxSerial = all.length
+          ? Math.max(...all.map((c) => Number(c.serial)))
+          : 0;
+
+        setForm((prev) => ({
+          ...prev,
+          serial: maxSerial + 1,
+        }));
+      }
     } catch (err) {
-      console.error(err);
       toast.error("Failed to load customers");
     }
-  };
+  }, [billingMode, editingId]);
+
+  // FIXED WARNING: fetchCustomers included
+  useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
 
   useEffect(() => {
-    fetch();
-  }, []);
+    setFilteredCustomers(customers);
+  }, [customers]);
 
-  /* ---------------------------------------------------
-     LIVE VALIDATION
-  ----------------------------------------------------- */
+  /* ------------------------------------------------
+                  VALIDATION
+  ------------------------------------------------ */
   const validateField = (field, value) => {
     let message = "";
 
-    if (field === "name") {
-      if (!value.trim()) message = "Name is required";
+    if (field === "name" && !value.trim()) {
+      message = "Name is required";
     }
 
     if (field === "serial") {
-      if (!value) message = "Serial number is required";
-      else if (isNaN(value)) message = "Serial must be a number";
+      if (!value) message = "Serial is required";
+      else if (isNaN(value)) message = "Serial must be numeric";
       else {
         const exists = customers.some(
           (c) => c.serial === Number(value) && c.id !== editingId
         );
-        if (exists) message = "Serial number already exists";
+        if (exists) message = "Serial already exists";
       }
     }
 
     if (field === "phone") {
       if (value.trim() !== "") {
-        if (!/^[0-9]{10}$/.test(value))
-          message = "Phone must be a 10-digit number";
+        if (!/^[0-9]{10}$/.test(value)) message = "Phone must be 10 digits";
 
         const exists = customers.some(
           (c) => c.phone === value && c.id !== editingId
         );
-        if (exists) message = "Phone number already exists";
+        if (exists) message = "Phone already exists";
       }
     }
 
@@ -70,13 +105,10 @@ export default function CustomersPage({ onSelectCustomer }) {
   };
 
   const handleInput = (field, value) => {
-    setForm((p) => ({ ...p, [field]: value }));
+    setForm((prev) => ({ ...prev, [field]: value }));
     validateField(field, value);
   };
 
-  /* ---------------------------------------------------
-     FORM SUBMIT
-  ----------------------------------------------------- */
   const isFormValid = () => {
     return (
       form.name.trim() &&
@@ -87,14 +119,12 @@ export default function CustomersPage({ onSelectCustomer }) {
     );
   };
 
+  /* ------------------------------------------------
+                    SUBMIT
+  ------------------------------------------------ */
   const submit = async (e) => {
     e.preventDefault();
-
-    // Final validation before save
-    if (!isFormValid()) {
-      toast.error("Fix validation errors before saving");
-      return;
-    }
+    if (!isFormValid()) return toast.error("Fix errors before saving");
 
     try {
       if (editingId) {
@@ -103,60 +133,56 @@ export default function CustomersPage({ onSelectCustomer }) {
           phone: form.phone || null,
           serial: Number(form.serial),
         });
-        toast.success("Customer updated successfully");
+        toast.success("Customer updated");
       } else {
         await createCustomer({
           name: form.name,
           phone: form.phone || null,
           serial: Number(form.serial),
         });
-        toast.success("Customer created successfully");
+        toast.success("Customer created");
       }
 
       setForm({ name: "", phone: "", serial: "" });
       setEditingId(null);
-      fetch();
+      fetchCustomers();
     } catch (err) {
       toast.error(err.response?.data?.message || "Error saving customer");
     }
   };
 
-  /* ---------------------------------------------------
-     EDIT + DELETE
-  ----------------------------------------------------- */
+  /* ------------------------------------------------
+                EDIT + DELETE
+  ------------------------------------------------ */
   const startEdit = (c) => {
     setEditingId(c.id);
-    setForm({
-      name: c.name,
-      phone: c.phone || "",
-      serial: c.serial,
-    });
+    setForm({ name: c.name, phone: c.phone || "", serial: c.serial });
     setErrors({ name: "", serial: "", phone: "" });
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete customer?")) return;
+
     try {
       await deleteCustomer(id);
       toast.success("Customer deleted");
-      fetch();
-    } catch (err) {
-      toast.error("Failed to delete customer");
+      fetchCustomers();
+    } catch {
+      toast.error("Failed to delete");
     }
   };
 
-  /* ---------------------------------------------------
-     UI
-  ----------------------------------------------------- */
-
+  /* ------------------------------------------------
+                    UI
+  ------------------------------------------------ */
   return (
     <div className="col">
+      {/* FORM */}
       <div className="card">
         <h2>{editingId ? "Edit Customer" : "Add Customer"}</h2>
 
         <form onSubmit={submit}>
           <div className="form-row">
-            {/* NAME */}
             <div className="field">
               <input
                 className="input"
@@ -167,7 +193,6 @@ export default function CustomersPage({ onSelectCustomer }) {
               {errors.name && <div className="error-text">{errors.name}</div>}
             </div>
 
-            {/* PHONE */}
             <div className="field">
               <input
                 className="input"
@@ -175,17 +200,14 @@ export default function CustomersPage({ onSelectCustomer }) {
                 value={form.phone}
                 onChange={(e) => handleInput("phone", e.target.value)}
               />
-              {errors.phone && (
-                <div className="error-text">{errors.phone}</div>
-              )}
+              {errors.phone && <div className="error-text">{errors.phone}</div>}
             </div>
 
-            {/* SERIAL */}
             <div className="field">
               <input
                 className="input small"
-                placeholder="Serial"
                 type="number"
+                placeholder="Serial"
                 value={form.serial}
                 onChange={(e) => handleInput("serial", e.target.value)}
               />
@@ -194,19 +216,14 @@ export default function CustomersPage({ onSelectCustomer }) {
               )}
             </div>
 
-            <button
-              className="btn"
-              type="submit"
-              disabled={!isFormValid()}
-              style={{ opacity: isFormValid() ? 1 : 0.5 }}
-            >
+            <button className="btn" type="submit" disabled={!isFormValid()}>
               {editingId ? "Update" : "Create"}
             </button>
 
             {editingId && (
               <button
-                type="button"
                 className="btn ghost"
+                type="button"
                 onClick={() => {
                   setEditingId(null);
                   setForm({ name: "", phone: "", serial: "" });
@@ -220,43 +237,37 @@ export default function CustomersPage({ onSelectCustomer }) {
         </form>
       </div>
 
-      {/* CUSTOMER LIST */}
+      {/* LIST */}
       <div className="card" style={{ marginTop: 12 }}>
-        <h2>Customers</h2>
+        <h2>
+          Customers ({billingMode === "luggage" ? "Luggage" : "Farmer"} Mode)
+        </h2>
 
         <div className="list">
-          {customers.map((c) => (
+          {filteredCustomers.length === 0 && (
+            <div style={{ padding: 12 }}>No customers found.</div>
+          )}
+
+          {filteredCustomers.map((c) => (
             <div className="item" key={c.id}>
               <div>
                 <div style={{ fontWeight: 700 }}>{c.name}</div>
-                <div className="small">
-                  #{c.serial} • {c.phone || "-"}
-                </div>
+                <div className="small">#{c.serial} • {c.phone || "-"}</div>
               </div>
 
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="btn ghost"
-                  onClick={() => onSelectCustomer && onSelectCustomer(c)}
-                >
+                <button className="btn ghost" onClick={() => onSelectCustomer?.(c)}>
                   Open
                 </button>
                 <button className="btn" onClick={() => startEdit(c)}>
                   Edit
                 </button>
-                <button
-                  className="btn ghost"
-                  onClick={() => handleDelete(c.id)}
-                >
+                <button className="btn ghost" onClick={() => handleDelete(c.id)}>
                   Delete
                 </button>
               </div>
             </div>
           ))}
-
-          {customers.length === 0 && (
-            <div style={{ padding: 12 }}>No customers yet</div>
-          )}
         </div>
       </div>
     </div>

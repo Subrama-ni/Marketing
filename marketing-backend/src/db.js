@@ -1,14 +1,16 @@
-import pkg from 'pg';
-import dotenv from 'dotenv';
+// db.js
+import pkg from "pg";
+import dotenv from "dotenv";
+
 dotenv.config();
 
 const { Pool } = pkg;
-
-// ✅ Handle SSL for Render deployment automatically
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === "production";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString:
+    process.env.DATABASE_URL ||
+    "postgres://postgres:yourpassword@localhost:5432/marketing",
   ssl: isProduction ? { rejectUnauthorized: false } : false,
 });
 

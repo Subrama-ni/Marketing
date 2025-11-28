@@ -1,9 +1,8 @@
+// controllers/entryController.js
 import pool from "../db.js";
 import { parseDateQuery } from "../utils/dateUtils.js";
 
-/* ======================================================
-   CREATE ENTRY
-====================================================== */
+/* CREATE ENTRY */
 export const createEntry = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -17,6 +16,8 @@ export const createEntry = async (req, res) => {
       bags,
       paid_amount,
       already_paid,
+      billing_type, // 'farmer' or 'luggage'
+      luggage_amount,
     } = req.body;
 
     if (!customerId || kgs == null || rate == null)
@@ -26,31 +27,39 @@ export const createEntry = async (req, res) => {
       `SELECT id FROM customers WHERE id=$1 AND user_id=$2`,
       [customerId, userId]
     );
-    if (cust.rowCount === 0)
-      return res.status(403).json({ message: "Not allowed" });
+    if (cust.rowCount === 0) return res.status(403).json({ message: "Not allowed" });
 
     const dateObj = parseDateQuery(entry_date);
     const comm = Number(commission || 0);
     const bagCount = Number(bags || 0);
-    const amount = (Number(kgs) - comm) * Number(rate);
+    const luggageAmt = Number(luggage_amount || 0);
+    const type = billing_type === "luggage" ? "luggage" : "farmer";
+
+    // compute amount depending on billing type
+    let amount;
+    if (type === "luggage") {
+      amount = Number(kgs) * Number(rate); // luggage uses kgs * rate
+    } else {
+      amount = (Number(kgs) - comm) * Number(rate);
+    }
 
     const paid = Number(paid_amount || 0);
     const alreadyPaid = Number(already_paid || 0);
-
     const remaining = Math.max(amount - paid, 0);
 
     const { rows } = await pool.query(
       `INSERT INTO entries
-        (customer_id, user_id, entry_date, item_name, bags, kgs, rate, commission,
-         amount, paid_amount, remaining, already_paid)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        (customer_id, user_id, entry_date, item_name, bags, luggage_amount, kgs, rate, commission,
+         amount, paid_amount, remaining, already_paid, billing_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         customerId,
         userId,
         dateObj,
-        (item_name && item_name.trim()) ? item_name.trim() : null,
+        item_name ? item_name.trim() : null,
         bagCount,
+        luggageAmt,
         kgs,
         rate,
         comm,
@@ -58,6 +67,7 @@ export const createEntry = async (req, res) => {
         paid,
         remaining,
         alreadyPaid,
+        type,
       ]
     );
 
@@ -68,26 +78,24 @@ export const createEntry = async (req, res) => {
   }
 };
 
-/* ======================================================
-   GET ENTRIES BY CUSTOMER
-====================================================== */
+/* GET ENTRIES BY CUSTOMER */
 export const getEntriesByCustomer = async (req, res) => {
   try {
     const userId = req.user.id;
     const { customerId } = req.params;
+    const billingType = req.query.billingType || "farmer";
 
     const ow = await pool.query(
       `SELECT 1 FROM customers WHERE id=$1 AND user_id=$2`,
       [customerId, userId]
     );
-    if (ow.rowCount === 0)
-      return res.status(403).json({ message: "Not allowed" });
+    if (ow.rowCount === 0) return res.status(403).json({ message: "Not allowed" });
 
     const { rows } = await pool.query(
       `SELECT * FROM entries
-       WHERE customer_id=$1 AND user_id=$2
+       WHERE customer_id=$1 AND user_id=$2 AND billing_type=$3
        ORDER BY entry_date DESC`,
-      [customerId, userId]
+      [customerId, userId, billingType]
     );
 
     res.json(rows);
@@ -97,9 +105,7 @@ export const getEntriesByCustomer = async (req, res) => {
   }
 };
 
-/* ======================================================
-   UPDATE ENTRY
-====================================================== */
+/* UPDATE ENTRY */
 export const updateEntry = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -114,39 +120,31 @@ export const updateEntry = async (req, res) => {
       bags,
       paid_amount,
       already_paid,
+      billing_type,
+      luggage_amount,
     } = req.body;
 
-    const old = await pool.query(
-      `SELECT * FROM entries WHERE id=$1 AND user_id=$2`,
-      [id, userId]
-    );
-    if (old.rowCount === 0)
-      return res.status(403).json({ message: "Not allowed" });
+    const old = await pool.query(`SELECT * FROM entries WHERE id=$1 AND user_id=$2`, [id, userId]);
+    if (old.rowCount === 0) return res.status(403).json({ message: "Not allowed" });
 
     const dateObj = parseDateQuery(entry_date);
     const comm = Number(commission || 0);
     const bagCount = Number(bags || 0);
+    const luggageAmt = Number(luggage_amount || 0);
+    const type = billing_type === "luggage" ? "luggage" : old.rows[0].billing_type || "farmer";
 
-    const amount = (Number(kgs) - comm) * Number(rate);
+    const amount = type === "luggage" ? Number(kgs) * Number(rate) : (Number(kgs) - comm) * Number(rate);
 
-    const newPaid =
-      paid_amount !== undefined
-        ? Number(paid_amount)
-        : Number(old.rows[0].paid_amount);
-
-    const newAlreadyPaid =
-      already_paid !== undefined
-        ? Number(already_paid)
-        : Number(old.rows[0].already_paid);
-
+    const newPaid = paid_amount !== undefined ? Number(paid_amount) : Number(old.rows[0].paid_amount || 0);
+    const newAlreadyPaid = already_paid !== undefined ? Number(already_paid) : Number(old.rows[0].already_paid || 0);
     const newRemaining = Math.max(amount - newPaid, 0);
 
     const { rows } = await pool.query(
       `UPDATE entries
        SET entry_date=$1, kgs=$2, rate=$3, commission=$4,
            amount=$5, item_name=$6, bags=$7, paid_amount=$8,
-           remaining=$9, already_paid=$10
-       WHERE id=$11 AND user_id=$12
+           remaining=$9, already_paid=$10, billing_type=$11, luggage_amount=$12
+       WHERE id=$13 AND user_id=$14
        RETURNING *`,
       [
         dateObj,
@@ -154,11 +152,13 @@ export const updateEntry = async (req, res) => {
         rate,
         comm,
         amount,
-        (item_name && item_name.trim()) ? item_name.trim() : null,
+        item_name ? item_name.trim() : null,
         bagCount,
         newPaid,
         newRemaining,
         newAlreadyPaid,
+        type,
+        luggageAmt,
         id,
         userId,
       ]
@@ -171,26 +171,16 @@ export const updateEntry = async (req, res) => {
   }
 };
 
-/* ======================================================
-   DELETE ENTRY
-====================================================== */
+/* DELETE ENTRY */
 export const deleteEntry = async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
 
-    const exists = await pool.query(
-      `SELECT 1 FROM entries WHERE id=$1 AND user_id=$2`,
-      [id, userId]
-    );
-    if (exists.rowCount === 0)
-      return res.status(403).json({ message: "Not allowed" });
+    const exists = await pool.query(`SELECT 1 FROM entries WHERE id=$1 AND user_id=$2`, [id, userId]);
+    if (exists.rowCount === 0) return res.status(403).json({ message: "Not allowed" });
 
-    await pool.query("DELETE FROM entries WHERE id=$1 AND user_id=$2", [
-      id,
-      userId,
-    ]);
-
+    await pool.query("DELETE FROM entries WHERE id=$1 AND user_id=$2", [id, userId]);
     res.json({ message: "Deleted" });
   } catch (err) {
     console.error("❌ deleteEntry error:", err);

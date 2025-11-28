@@ -1,3 +1,4 @@
+// routes/entryRoutes.js
 import express from "express";
 import {
   createEntry,

@@ -8,12 +8,14 @@ import {
 } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { BillingModeProvider } from "./context/BillingModeContext"; // <- added
 
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CustomersPage from "./pages/CustomersPage";
 import EntriesPage from "./pages/EntriesPage";
 import PaymentsPage from "./pages/PaymentsPage";
+import SettingsPage from "./pages/SettingsPage"; // <- new settings page must exist
 
 import Sidebar from "./components/Sidebar";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -33,7 +35,6 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-/** Premium Topbar */
 /** Premium Topbar with Session Timer */
 function Topbar({ theme, toggleTheme }) {
   const { user, logout } = useAuth();
@@ -83,98 +84,94 @@ function Topbar({ theme, toggleTheme }) {
     return () => clearInterval(interval);
   }, [user]);
 
-const isDark = theme === "dark";
+  const isDark = theme === "dark";
 
-const timerStyle = {
-  padding: "6px 14px",
-  borderRadius: "999px", // pill shape
-  fontWeight: 600,
-  fontSize: "14px",
-  letterSpacing: "0.3px",
-  whiteSpace: "nowrap",
-  cursor: "default",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  transition: "all 0.25s ease",
+  const timerStyle = {
+    padding: "6px 14px",
+    borderRadius: "999px", // pill shape
+    fontWeight: 600,
+    fontSize: "14px",
+    letterSpacing: "0.3px",
+    whiteSpace: "nowrap",
+    cursor: "default",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    transition: "all 0.25s ease",
 
-  color:
-    timeLeft <= 30
-      ? "white"
-      : timeLeft <= 120
-      ? isDark
-        ? "#2c1a00"
-        : "#4a2d00"
-      : isDark
-      ? "white"
-      : "black",
+    color:
+      timeLeft <= 30
+        ? "white"
+        : timeLeft <= 120
+        ? isDark
+          ? "#2c1a00"
+          : "#4a2d00"
+        : isDark
+        ? "white"
+        : "black",
 
-  background:
-    timeLeft <= 30
-      ? "linear-gradient(135deg, #ff3b30, #b71c1c)"
-      : timeLeft <= 120
-      ? "linear-gradient(135deg, #f39c12, #d35400)"
-      : isDark
-      ? "linear-gradient(135deg, #505050, #3b3b3b)"
-      : "linear-gradient(135deg, #ebebeb, #d5d5d5)",
+    background:
+      timeLeft <= 30
+        ? "linear-gradient(135deg, #ff3b30, #b71c1c)"
+        : timeLeft <= 120
+        ? "linear-gradient(135deg, #f39c12, #d35400)"
+        : isDark
+        ? "linear-gradient(135deg, #505050, #3b3b3b)"
+        : "linear-gradient(135deg, #ebebeb, #d5d5d5)",
 
-  boxShadow:
-    timeLeft <= 30
-      ? "0 0 10px rgba(255, 56, 56, 0.9)"
-      : timeLeft <= 120
-      ? "0 0 6px rgba(255, 165, 0, 0.7)"
-      : isDark
-      ? "0 0 4px rgba(0,0,0,0.4)"
-      : "0 0 4px rgba(0,0,0,0.2)",
+    boxShadow:
+      timeLeft <= 30
+        ? "0 0 10px rgba(255, 56, 56, 0.9)"
+        : timeLeft <= 120
+        ? "0 0 6px rgba(255, 165, 0, 0.7)"
+        : isDark
+        ? "0 0 4px rgba(0,0,0,0.4)"
+        : "0 0 4px rgba(0,0,0,0.2)",
 
-  animation:
-    timeLeft <= 30
-      ? "pulse 1s infinite"
-      : timeLeft <= 120
-      ? "pulseSlow 2s infinite"
-      : "none",
-};
-
-
+    animation:
+      timeLeft <= 30
+        ? "pulse 1s infinite"
+        : timeLeft <= 120
+        ? "pulseSlow 2s infinite"
+        : "none",
+  };
 
   return (
     <div className="premium-topbar">
       <h3 className="title">📊 Dashboard</h3>
 
       <div className="actions">
-
         <button className="theme-toggle" onClick={toggleTheme}>
           {theme === "light" ? "🌙" : "☀️"}
         </button>
 
         <div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  }}
->
-  <span
-    style={{
-      background: "#34495e",
-      color: "white",
-      width: "32px",
-      height: "32px",
-      borderRadius: "50%",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontWeight: "bold",
-      fontSize: "14px",
-      textTransform: "uppercase",
-    }}
-  >
-    {user?.name?.[0] || "U"}
-  </span>
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <span
+            style={{
+              background: "#34495e",
+              color: "white",
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontWeight: "bold",
+              fontSize: "14px",
+              textTransform: "uppercase",
+            }}
+          >
+            {user?.name?.[0] || "U"}
+          </span>
 
-  <span>{user?.name}</span>
-</div>
-
+          <span>{user?.name}</span>
+        </div>
 
         <span style={timerStyle} title={logoutAt}>
           ⏳ {remainingTime}
@@ -194,7 +191,6 @@ const timerStyle = {
     </div>
   );
 }
-
 
 /** Main Layout */
 function DashboardLayout() {
@@ -236,6 +232,7 @@ function DashboardLayout() {
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/entries" element={<EntriesPage />} />
             <Route path="/payments" element={<PaymentsPage />} />
+            <Route path="/settings" element={<SettingsPage />} /> {/* new */}
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -256,69 +253,69 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <Router>
+      <BillingModeProvider> {/* <- provider wraps the app */}
+        <Router>
+          {/* Warning Modal */}
+          {showWarning && (
+            <div style={popupStyle}>
+              <div style={modalStyle}>
+                <h3>Session Expiring</h3>
+                <p>You will be logged out in {countdown} seconds due to inactivity.</p>
 
-        {/* Warning Modal */}
-        {showWarning && (
-          <div style={popupStyle}>
-            <div style={modalStyle}>
-              <h3>Session Expiring</h3>
-              <p>You will be logged out in {countdown} seconds due to inactivity.</p>
+                <div
+                  style={{
+                    height: "6px",
+                    width: "100%",
+                    background: "#eee",
+                    marginTop: "12px",
+                    borderRadius: "4px",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${(countdown / 60) * 100}%`,
+                      background: "#e74c3c",
+                      transition: "width 1s linear",
+                    }}
+                  />
+                </div>
 
-<div
-  style={{
-    height: "6px",
-    width: "100%",
-    background: "#eee",
-    marginTop: "12px",
-    borderRadius: "4px",
-    overflow: "hidden",
-  }}
->
-  <div
-    style={{
-      height: "100%",
-      width: `${(countdown / 60) * 100}%`,
-      background: "#e74c3c",
-      transition: "width 1s linear",
-    }}
-  />
-</div>
-
-<button onClick={stayLoggedIn} style={buttonStyle}>
-  Stay Logged In
-</button>
-
+                <button onClick={stayLoggedIn} style={buttonStyle}>
+                  Stay Logged In
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <Routes>
-          {/* Public */}
-          <Route path="/login" element={<LoginPage />} />
+          <Routes>
+            {/* Public */}
+            <Route path="/login" element={<LoginPage />} />
 
-          {/* Protected */}
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
-            }
+            {/* Protected */}
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+
+          <ToastContainer
+            position="top-right"
+            autoClose={2200}
+            hideProgressBar={false}
+            transition={Slide}
+            theme="colored"
           />
-
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-
-        <ToastContainer
-          position="top-right"
-          autoClose={2200}
-          hideProgressBar={false}
-          transition={Slide}
-          theme="colored"
-        />
-      </Router>
+        </Router>
+      </BillingModeProvider>
     </AuthProvider>
   );
 }
@@ -337,7 +334,6 @@ const popupStyle = {
   alignItems: "center",
   zIndex: 9999,
 };
-
 
 const modalStyle = {
   background: "rgba(255, 255, 255, 0.9)",
@@ -365,4 +361,3 @@ const buttonStyle = {
 buttonStyle[":hover"] = {
   background: "#1f8b4d",
 };
-
