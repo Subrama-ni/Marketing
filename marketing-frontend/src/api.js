@@ -1,3 +1,4 @@
+// src/api.js (frontend)
 import axios from "axios";
 import dayjs from "dayjs";
 import { toast } from "react-toastify";
@@ -9,20 +10,38 @@ const API = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Request interceptor: attach token and x-last-active header
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+
+  // last active timestamp (from localStorage updated by sessionActivity)
+  const lastActive = localStorage.getItem("lastActive") || Date.now();
+  config.headers["x-last-active"] = lastActive;
+
   return config;
 });
 
+// Response interceptor
 API.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    const status = err.response?.status;
+
+    // Session expired codes used by backend
+    if (status === 440 || status === 441) {
+      toast.error(err.response.data?.message || "Session expired. Please login again.");
       localStorage.removeItem("token");
-      toast.error("Session expired. Please log in again.");
-      setTimeout(() => (window.location.href = "/login"), 1200);
+      setTimeout(() => (window.location.href = "/login"), 800);
     }
+
+    // Unauthorized -> remove token to prevent infinite 401 loops
+    if (status === 401) {
+      // allow UI to handle redirect
+      console.warn("API unauthorized - removing token");
+      localStorage.removeItem("token");
+    }
+
     return Promise.reject(err);
   }
 );
@@ -34,12 +53,39 @@ const handleError = (error) => {
 };
 
 /* Customers */
-export const getCustomers = async () => {
-  try { return await API.get(`/customers`); } catch (e) { handleError(e); }
+export const getCustomers = async (params = {}) => {
+  try {
+    return await API.get(`/customers`, { params });
+  } catch (e) {
+    handleError(e);
+  }
 };
-export const createCustomer = async (data) => { try { return await API.post(`/customers`, data); } catch (e) { handleError(e); } };
-export const updateCustomer = async (id, data) => { try { return await API.put(`/customers/${id}`, data); } catch (e) { handleError(e); } };
-export const deleteCustomer = async (id) => { try { return await API.delete(`/customers/${id}`); } catch (e) { handleError(e); } };
+export const createCustomer = async (data) => {
+  try {
+    return await API.post(`/customers`, data);
+  } catch (e) {
+    handleError(e);
+  }
+};
+export const updateCustomer = async (id, data) => {
+  try {
+    return await API.put(`/customers/${id}`, data);
+  } catch (e) {
+    handleError(e);
+  }
+};
+export const deleteCustomer = async (id) => {
+  try {
+    return await API.delete(`/customers/${id}`);
+  } catch (e) {
+    handleError(e);
+  }
+};
+
+/* Helper */
+export const getCustomersByMode = async (billingType) => {
+  return getCustomers({ billingType });
+};
 
 /* Entries */
 export const createEntry = async (data) => {
@@ -53,13 +99,17 @@ export const createEntry = async (data) => {
       luggage_amount: Number(data.luggage_amount || 0),
     };
     return await API.post(`/entries`, payload);
-  } catch (error) { handleError(error); }
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 export const getEntriesByCustomer = async (customerId, billingType = "farmer") => {
   try {
-    return await API.get(`/entries/${customerId}?billingType=${encodeURIComponent(billingType)}`);
-  } catch (error) { handleError(error); }
+    return await API.get(`/entries/${customerId}`, { params: { billingType } });
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 export const updateEntry = async (id, data) => {
@@ -73,11 +123,17 @@ export const updateEntry = async (id, data) => {
       luggage_amount: Number(data.luggage_amount || 0),
     };
     return await API.put(`/entries/${id}`, payload);
-  } catch (error) { handleError(error); }
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 export const deleteEntry = async (id) => {
-  try { return await API.delete(`/entries/${id}`); } catch (error) { handleError(error); }
+  try {
+    return await API.delete(`/entries/${id}`);
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 /* Payments */
@@ -91,25 +147,71 @@ export const getEntriesForPayment = async (customerId, fromDate, toDate, billing
   try {
     const f = normalizeDateForApi(fromDate);
     const t = normalizeDateForApi(toDate);
-    return await API.get(`/payments/entries/${customerId}?fromDate=${f}&toDate=${t}&billingType=${billingType}`);
-  } catch (error) { handleError(error); }
+    return await API.get(`/payments/entries/${customerId}`, { params: { fromDate: f, toDate: t, billingType } });
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 export const makePayment = async (data) => {
   try {
-    // include billingType inside meta if provided
     return await API.post(`/payments`, data);
-  } catch (error) { handleError(error); }
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 export const getPaymentHistory = async (customerId) => {
-  try { return await API.get(`/payments/history/${customerId}`); } catch (error) { handleError(error); }
+  try {
+    return await API.get(`/payments/history/${customerId}`);
+  } catch (error) {
+    handleError(error);
+  }
 };
 
 /* Auth */
-export const loginUser = async (data) => { try { return await API.post(`/auth/login`, data); } catch (error) { handleError(error); } };
-export const registerUser = async (data) => { try { return await API.post(`/auth/register`, data); } catch (error) { handleError(error); } };
-export const forgotPasswordRequest = async (email) => { try { return await API.post(`/auth/forgot-password`, { email }); } catch (error) { handleError(error); } };
-export const resetPasswordRequest = async (token, newPassword) => { try { return await API.post(`/auth/reset-password`, { token, newPassword }); } catch (error) { handleError(error); } };
-export const getCustomersByBilling = (billingType) =>
-  API.get(`/customers/by-billing?billingType=${billingType}`);
+export const loginUser = async (data) => {
+  try {
+    return await API.post(`/auth/login`, data);
+  } catch (error) {
+    handleError(error);
+  }
+};
+export const registerUser = async (data) => {
+  try {
+    return await API.post(`/auth/register`, data);
+  } catch (error) {
+    handleError(error);
+  }
+};
+export const forgotPasswordRequest = async (email) => {
+  try {
+    return await API.post(`/auth/forgot-password`, { email });
+  } catch (error) {
+    handleError(error);
+  }
+};
+export const resetPasswordRequest = async (token, newPassword) => {
+  try {
+    return await API.post(`/auth/reset-password`, { token, newPassword });
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+/* Settings */
+export const getSettings = async () => {
+  try {
+    return await API.get("/settings");
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const saveSettings = async (data) => {
+  try {
+    return await API.put("/settings", data);
+  } catch (error) {
+    handleError(error);
+  }
+};

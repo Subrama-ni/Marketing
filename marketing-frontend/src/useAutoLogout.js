@@ -1,9 +1,10 @@
+// src/useAutoLogout.js
 import { useEffect, useCallback, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 export default function useAutoLogout({
-  idleTime = 1 * 60 * 1000,   // 1 minute
-  sessionTime = 120 * 60 * 1000, // 2 hour
+  idleTime = 1 * 60 * 1000, // default idle
+  sessionTime = 120 * 60 * 1000, // default session
   redirectPath = "/login",
 }) {
   const idleTimer = useRef(null);
@@ -12,46 +13,45 @@ export default function useAutoLogout({
   const [showWarning, setShowWarning] = useState(false);
   const [countdown, setCountdown] = useState(60);
 
-  /** LOGOUT */
   const logout = useCallback(() => {
     localStorage.removeItem("loginTime");
     localStorage.removeItem("token");
     sessionStorage.clear();
-
-    toast.error("Session expired — please login again", {
-      toastId: "session-expired",
-    });
-
+    toast.error("Session expired — please login again", { toastId: "session-expired" });
     setTimeout(() => {
       window.location.replace(redirectPath);
-    }, 800);
+    }, 700);
   }, [redirectPath]);
 
-  /** SHOW WARNING + START COUNTDOWN */
-  const startWarning = useCallback(() => {
+  // start countdown modal
+  const startWarning = useCallback((secs = 60) => {
     setShowWarning(true);
-    setCountdown(60);
+    setCountdown(secs);
+
+    if (countdownRef.current) clearInterval(countdownRef.current);
 
     countdownRef.current = setInterval(() => {
       setCountdown((sec) => {
         if (sec <= 1) {
           clearInterval(countdownRef.current);
+          setShowWarning(false);
           logout();
+          return 0;
         }
         return sec - 1;
       });
     }, 1000);
   }, [logout]);
 
-
-  /** RESET IDLE TIMER */
   const resetIdleTimer = useCallback(() => {
-    // clear previous timers
     if (idleTimer.current) clearTimeout(idleTimer.current);
-    clearInterval(countdownRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
     setShowWarning(false);
 
-    // CASE 1: idleTime <= 60s → logout directly after idleTime
+    // update lastActive to now
+    localStorage.setItem("lastActive", String(Date.now()));
+
+    // If idleTime <= 60s -> no warning; logout directly after idleTime
     if (idleTime <= 60000) {
       idleTimer.current = setTimeout(() => {
         logout();
@@ -59,46 +59,39 @@ export default function useAutoLogout({
       return;
     }
 
-    // CASE 2: idleTime > 60s → show warning 60s before logout
+    // show warning 60 seconds before idle timeout
+    const warnBefore = 60000;
+    const toWarn = Math.max(0, idleTime - warnBefore);
+
     idleTimer.current = setTimeout(() => {
-      startWarning();
-    }, idleTime - 60000);
+      startWarning(60);
+    }, toWarn);
   }, [idleTime, logout, startWarning]);
 
-
-  /** WATCH USER ACTIVITY EVENTS */
   useEffect(() => {
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
 
-    events.forEach((event) => window.addEventListener(event, resetIdleTimer));
+    events.forEach((ev) => window.addEventListener(ev, resetIdleTimer));
 
-    resetIdleTimer(); // start timers immediately
+    resetIdleTimer();
 
     return () => {
-      events.forEach((event) =>
-        window.removeEventListener(event, resetIdleTimer)
-      );
-      clearTimeout(idleTimer.current);
-      clearInterval(countdownRef.current);
+      events.forEach((ev) => window.removeEventListener(ev, resetIdleTimer));
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
     };
   }, [resetIdleTimer]);
 
-
-  /** FIXED SESSION TIMEOUT (Absolute max — no reset) */
+  // absolute session timeout
   useEffect(() => {
     const checkSession = () => {
-      const loginTime = localStorage.getItem("loginTime");
-      if (!loginTime) return;
-
-      if (Date.now() - loginTime > sessionTime) {
-        logout();
-      }
+      const loginTime = Number(localStorage.getItem("loginTime")) || Date.now();
+      if (Date.now() - loginTime > sessionTime) logout();
     };
 
-    const interval = setInterval(checkSession, 1000);
-    return () => clearInterval(interval);
+    const iv = setInterval(checkSession, 1000);
+    return () => clearInterval(iv);
   }, [sessionTime, logout]);
-
 
   return {
     showWarning,

@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback } from "react";
+// src/pages/PaymentsPage.js
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  getCustomers,
   getEntriesForPayment,
   makePayment,
   getPaymentHistory,
   updateEntry,
-  getEntriesByCustomer,
+  getCustomers,
 } from "../api";
 import dayjs from "dayjs";
 import jsPDF from "jspdf";
@@ -16,7 +16,7 @@ import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useBillingMode } from "../context/BillingModeContext";
 
-const ONLY_SHOW_CUSTOMERS_WITH_ENTRIES = false;
+const ONLY_SHOW_CUSTOMERS_WITH_ENTRIES = true;
 
 export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   const { billingMode } = useBillingMode(); // "farmer" | "luggage"
@@ -50,15 +50,13 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   const [bagAmountPer, setBagAmountPer] = useState(0);
   const [bagTotal, setBagTotal] = useState(0);
 
-  // Already Paid (extracted from backend)
+  // Already Paid (extracted from selected unpaid entries)
   const [alreadyPaid, setAlreadyPaid] = useState(0);
 
-  // Luggage total (for luggage mode)
+  // Luggage total (from selected unpaid entries)
   const [luggageTotal, setLuggageTotal] = useState(0);
 
   const [selectedUnpaidIds, setSelectedUnpaidIds] = useState(new Set());
-
-  /* --------------------- Helpers ------------------------ */
 
   const computeFinalPayable = useCallback(
     (remaining, commission, bags, alreadyPaidVal, luggage) => {
@@ -84,40 +82,24 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     return d.isValid() ? d.format("DD/MM/YYYY") : dateStr;
   }, []);
 
-  /* --------------------- Load Customers (filtered by billingMode) ------------------------ */
-
+  /* --------------------- Load Customers ------------------------ */
   const loadCustomers = useCallback(
-  async (mode = billingMode) => {
-    try {
-      const res = await getCustomers();
-      const all = res.data || [];
-
-      if (!ONLY_SHOW_CUSTOMERS_WITH_ENTRIES) {
-        setCustomers(all);
-        return;
+    async (mode = billingMode) => {
+      try {
+        if (ONLY_SHOW_CUSTOMERS_WITH_ENTRIES) {
+          const res = await getCustomers({ billingType: mode });
+          setCustomers(res.data || []);
+        } else {
+          const res = await getCustomers();
+          setCustomers(res.data || []);
+        }
+      } catch (err) {
+        console.error("❌ Error loading customers:", err);
+        toast.error("Error loading customers");
       }
-
-      const checks = await Promise.all(
-        all.map(async (c) => {
-          try {
-            const r = await getEntriesByCustomer(c.id, mode);
-            const entriesForMode = r.data || [];
-            return { customer: c, hasEntries: entriesForMode.length > 0 };
-          } catch (err) {
-            return { customer: c, hasEntries: false };
-          }
-        })
-      );
-
-      const filtered = checks.filter((x) => x.hasEntries).map((x) => x.customer);
-      setCustomers(filtered);
-    } catch (e) {
-      console.error("❌ Error loading customers:", e);
-    }
-  },
-  [billingMode]   // ✅ ONLY this
-);
-
+    },
+    [billingMode]
+  );
 
   useEffect(() => {
     loadCustomers();
@@ -136,21 +118,13 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   }, [selectedCustomer]);
 
   /* --------------------- Fetch Entries Range ------------------------ */
-
   const fetchEntries = async () => {
     if (!customerId) return toast.warn("Select customer");
     if (!fromDate || !toDate) return toast.warn("Select date range");
 
     try {
       setLoading(true);
-
-      const res = await getEntriesForPayment(
-        customerId,
-        toISODate(fromDate),
-        toISODate(toDate),
-        billingMode
-      );
-
+      const res = await getEntriesForPayment(customerId, toISODate(fromDate), toISODate(toDate), billingMode);
       const data = res.data?.entries || [];
 
       const normalized = data.map((e) => {
@@ -209,16 +183,8 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       setLuggageTotal(totalLuggageUnpaid);
       setCommissionAmount(0);
 
-      // initial payable should be based on selected (which is all unpaid by default)
       const remainingSelected = unpaidEntries.reduce((s, e) => s + e.remaining, 0);
-      const initialPayable = computeFinalPayable(
-        remainingSelected,
-        0,
-        0,
-        totalAlreadyPaidUnpaid,
-        totalLuggageUnpaid
-      );
-
+      const initialPayable = computeFinalPayable(remainingSelected, 0, 0, totalAlreadyPaidUnpaid, totalLuggageUnpaid);
       setPayAmount(initialPayable);
     } catch (err) {
       console.error("❌ Fetch entries error:", err);
@@ -229,7 +195,6 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   };
 
   /* --------------------- Fetch History ------------------------ */
-
   const fetchHistory = async (cid) => {
     try {
       const res = await getPaymentHistory(cid);
@@ -240,11 +205,9 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   };
 
   /* --------------------- Auto-Recalculate when selection changes ------------------------ */
-
-  useEffect(() => {
+  React.useEffect(() => {
     if (!entriesData.entries?.length) return;
 
-    // only consider selected unpaid entries for calculations
     const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
 
     const autoBags = unpaidSelected.reduce((s, e) => s + Number(e.bags || 0), 0);
@@ -259,9 +222,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     const bagsTotal = autoBags * Number(bagAmountPer || 0);
     setBagTotal(Number(bagsTotal.toFixed(2)));
 
-    // Recompute Payable based on selected unpaid only (this fixes earlier bug)
     const final = computeFinalPayable(remainingSelected, commissionAmount, bagsTotal, autoAlready, autoLuggage);
-
     setPayAmount(final);
   }, [
     selectedUnpaidIds,
@@ -273,10 +234,9 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     computeFinalPayable,
   ]);
 
-  /* --------------------- Commission Apply ------------------------ */
+  /* --------------------- Remaining helpers (commission, bags, toggle selection, pay) ------------------------ */
 
   const handleCommissionLoad = () => {
-    // compute remaining from selected unpaid entries, not full totals
     const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
     const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
 
@@ -289,7 +249,6 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     setCommissionAmount(commissionValue);
     setPayableAfterCommission(payable);
 
-    // Recompute final payable using bags/already/luggage from selected
     const autoBags = unpaidSelected.reduce((s, e) => s + Number(e.bags || 0), 0);
     const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
     const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
@@ -299,26 +258,19 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     setPayAmount(final);
   };
 
-  /* --------------------- Bag Charges ------------------------ */
-
   const handleBagLoad = () => {
-    // bag total should be based on selected unpaid entries (bagCount is expected to be user override)
     const bagsTotal = Number(bagCount) * Number(bagAmountPer || 0);
     const bagsTotalRounded = Number(bagsTotal.toFixed(2));
     setBagTotal(bagsTotalRounded);
 
-    // compute remaining from selected unpaid entries
     const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
     const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
     const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
     const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
 
     const final = computeFinalPayable(remainingSelected, commissionAmount, bagsTotalRounded, autoAlready, autoLuggage);
-
     setPayAmount(final);
   };
-
-  /* --------------------- Toggle Selection ------------------------ */
 
   const toggleUnpaidSelection = (id) => {
     setSelectedUnpaidIds((prev) => {
@@ -335,14 +287,11 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
   const clearAllUnpaid = () => setSelectedUnpaidIds(new Set());
 
-  /* --------------------- Make Payment ------------------------ */
-
   const handlePay = async () => {
     if (!customerId) return toast.warn("Select customer");
     if (!fromDate || !toDate) return toast.warn("Select range");
     if (Number(payAmount) <= 0) return toast.error("Invalid payment value");
 
-    // Only consider selected unpaid entries for actual payment
     const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
     if (!unpaidSelected.length) return toast.info("No unpaid entries selected.");
 
@@ -355,7 +304,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         paymentMode: mode,
         fromDate: toISODate(fromDate),
         toDate: toISODate(toDate),
-        billingType: billingMode, // include billing type
+        billingType: billingMode,
         meta: {
           commissionPercent: Number(commissionPercent || 0),
           commissionAmount: Number(commissionAmount || 0),
@@ -370,7 +319,6 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
       await makePayment(payload);
 
-      /* Mark selected entries as fully paid */
       for (const entry of unpaidSelected) {
         const upd = {
           customerId: entry.customer_id,
@@ -387,7 +335,6 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         await updateEntry(entry.id, upd);
       }
 
-      // reload customers & history after payment
       await loadCustomers(billingMode);
       await fetchHistory(customerId);
 
@@ -400,8 +347,6 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       setLoading(false);
     }
   };
-
-  /* --------------------- PDF ------------------------ */
 
   const generatePDF = (historyRecord = null, forPrint = false) => {
     const doc = new jsPDF();
@@ -495,8 +440,6 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     doc.save(`Payment_${cname}_${Date.now()}.pdf`);
   };
 
-  /* --------------------- UI ------------------------ */
-
   const isDateBlocked = (date) => blockedDates.has(date);
 
   return (
@@ -547,6 +490,11 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           </button>
         </div>
       </div>
+
+      {/* ... rest unchanged (entries table, commission, bag section, final payment, history) ... */}
+
+      {/* You already have the rest of the UI in your existing file — kept above in this component. */}
+      {/* For brevity here I've kept the remainder from your existing file (entries table, commission, bags, history). */}
 
       {/* --- ENTRIES TABLE --- */}
       {scheduledEntries.length > 0 && (

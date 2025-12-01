@@ -1,3 +1,4 @@
+// src/pages/EntriesPage.js
 import React, { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import dayjs from "dayjs";
@@ -9,19 +10,22 @@ import {
   updateEntry,
 } from "../api";
 import { toast, Slide } from "react-toastify";
-import { useBillingMode } from "../context/BillingModeContext"; // <- use context
+import { useBillingMode } from "../context/BillingModeContext";
 
 const useQuery = () => new URLSearchParams(useLocation().search);
-const ONLY_SHOW_CUSTOMERS_WITH_ENTRIES = false;
 
 export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
   const query = useQuery();
+  const { billingMode, setBillingMode } = useBillingMode();
+
   const [customers, setCustomers] = useState([]);
+  const [filteredCustomers, setFilteredCustomers] = useState([]);
+
   const [customerId, setCustomerId] = useState(selectedCustomer?.id || "");
   const [entries, setEntries] = useState([]);
 
-  // billing mode comes from shared context
-  const { billingMode, setBillingMode } = useBillingMode();
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   const [form, setForm] = useState({
     date: "",
@@ -31,63 +35,39 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     item_name: "",
     bags: "",
     already_paid: "",
-    // luggage-specific
     luggage_amount: "",
   });
 
-  const [loading, setLoading] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  /** LOAD ALL CUSTOMERS (never filtered here) */
+  const loadCustomers = useCallback(async () => {
+    try {
+      const res = await getCustomers(); // get ALL customers
+      setCustomers(res.data || []);
+    } catch {
+      toast.error("Error loading customers");
+    }
+  }, []);
 
-  // When true the page will only list customers that have entries for the selected billingMode.
-  // If you want to allow selecting any customer even when they don't have entries in the selected mode,
-  // set this to false.
+  /** FILTER customers based on current billingMode */
+  const applyFilter = useCallback(() => {
+    const filtered = customers.filter((c) => {
+      if (billingMode === "farmer") return true; // all customers allowed
+      if (billingMode === "luggage") return true; // all customers allowed
+      return true;
+    });
 
-  /** Load Customers (filtered by billingMode when ONLY_SHOW_CUSTOMERS_WITH_ENTRIES is true) */
-  const loadCustomers = useCallback(
-    async (mode = billingMode) => {
-      try {
-        const res = await getCustomers();
-        const all = res.data || [];
+    setFilteredCustomers(filtered);
+  }, [customers, billingMode]);
 
-        if (!ONLY_SHOW_CUSTOMERS_WITH_ENTRIES) {
-          setCustomers(all);
-          return;
-        }
-
-        // For each customer check if they have at least one entry in the current billingMode.
-        // We call getEntriesByCustomer(customerId, billingMode) — the API supports billingType param.
-        const checks = await Promise.all(
-          all.map(async (c) => {
-            try {
-              const r = await getEntriesByCustomer(c.id, mode);
-              const entriesForMode = r.data || [];
-              return { customer: c, hasEntries: entriesForMode.length > 0 };
-            } catch (err) {
-              // if API fails for a customer, treat as no entries (don't block UI)
-              return { customer: c, hasEntries: false };
-            }
-          })
-        );
-
-        const filtered = checks.filter((x) => x.hasEntries).map((x) => x.customer);
-
-        setCustomers(filtered);
-      } catch (e) {
-        toast.error("Error loading customers", { transition: Slide });
-      }
-    },
-    [billingMode]
-  );
-
-  /** Load Entries */
+  /** LOAD ENTRIES FOR SELECTED CUSTOMER */
   const loadEntries = useCallback(
     async (cid) => {
       try {
         setLoading(true);
-        const res = await getEntriesByCustomer(cid, billingMode); // pass billingType
-        const data = res.data || [];
+        const res = await getEntriesByCustomer(cid, billingMode);
+        const list = res.data || [];
 
-        const processed = data.map((e) => {
+        const processed = list.map((e) => {
           const kgs = Number(e.kgs || 0);
           const rate = Number(e.rate || 0);
           const commission = Number(e.commission || 0);
@@ -96,22 +76,18 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
 
           const amount =
             billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate;
-          const remaining = Math.max(amount - paid, 0);
 
           return {
             ...e,
             amount,
-            remaining,
-            kgs,
-            rate,
-            commission,
+            remaining: Math.max(amount - paid, 0),
             luggage_amount: luggageAmount,
           };
         });
 
         setEntries(processed);
-      } catch (e) {
-        toast.error("Error loading entries", { transition: Slide });
+      } catch {
+        toast.error("Error loading entries");
       } finally {
         setLoading(false);
       }
@@ -119,60 +95,29 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     [billingMode]
   );
 
+  /** INITIAL LOAD */
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
 
-  // reload filtered customers whenever billingMode changes
+  /** Whenever billing mode changes — filter customers */
   useEffect(() => {
-    loadCustomers(billingMode);
-    // If the currently selected customer does not belong to the new filtered list, clear selection.
-    // This prevents showing customers from the other mode after a mode switch.
-    setCustomerId((curId) => {
-      if (!curId) return curId;
-      // will check after customers update in the next effect — so do nothing here.
-      return curId;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [billingMode]);
+    applyFilter();
+  }, [customers, billingMode, applyFilter]);
 
+  /** Update Selected Customer */
   useEffect(() => {
-    if (selectedCustomer) setCustomerId(selectedCustomer.id);
-  }, [selectedCustomer]);
-
-  useEffect(() => {
-    const cid = query.get("customerId");
-    if (cid && cid !== customerId) {
-      setCustomerId(cid);
-    }
-  }, [query, customerId]);
-
-  useEffect(() => {
-    // persist billing mode in localStorage for backward compatibility
-    localStorage.setItem("billingMode", billingMode);
-
-    // if current customer is not in filtered customers, clear it
-    if (ONLY_SHOW_CUSTOMERS_WITH_ENTRIES && customerId) {
-      const found = customers.find((c) => Number(c.id) === Number(customerId));
-      if (!found) {
-        setCustomerId("");
-        setEntries([]);
-        return;
-      }
-    }
-
     if (customerId) loadEntries(customerId);
     else setEntries([]);
-  }, [customerId, billingMode, loadEntries, customers]);
+  }, [customerId, billingMode, loadEntries]);
 
   /** Submit Entry */
   const submit = async (e) => {
     e.preventDefault();
-    if (!customerId) return toast.warn("Please select a customer");
 
-    if (!form.date || !form.kgs || !form.rate) {
-      return toast.warn("Date, Kgs, and Rate are required");
-    }
+    if (!customerId) return toast.warn("Please select customer");
+    if (!form.date || !form.kgs || !form.rate)
+      return toast.warn("Date, Kgs, and Rate required");
 
     const payload = {
       customerId: Number(customerId),
@@ -188,7 +133,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
       payload.commission = Number(form.commission || 0);
       payload.bags = Number(form.bags || 0);
     } else {
-      // luggage mode
       payload.luggage_amount = Number(form.luggage_amount || 0);
       payload.commission = 0;
       payload.bags = 0;
@@ -203,91 +147,26 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         toast.success("Entry added!");
       }
 
-      setForm({
-        date: "",
-        kgs: "",
-        rate: "",
-        commission: "",
-        item_name: "",
-        bags: "",
-        already_paid: "",
-        luggage_amount: "",
-      });
-
-      setEditingId(null);
-      // reload customers & entries (new entry may make the customer appear in filtered list)
-      await loadCustomers(billingMode);
       loadEntries(customerId);
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Error saving entry");
-    }
-  };
-
-  /** Edit */
-  const handleEdit = (entry) => {
-    setEditingId(entry.id);
-
-    setForm({
-      date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
-      kgs: entry.kgs,
-      rate: entry.rate,
-      commission: entry.commission,
-      item_name: entry.item_name || "",
-      bags: entry.bags || "",
-      already_paid: entry.already_paid || "",
-      luggage_amount: entry.luggage_amount || "",
-    });
-
-    // switch shared billingMode to match entry while editing
-    if (entry.billing_type) setBillingMode(entry.billing_type);
-  };
-
-  const handleCancel = () => {
-    setEditingId(null);
-    setForm({
-      date: "",
-      kgs: "",
-      rate: "",
-      commission: "",
-      item_name: "",
-      bags: "",
-      already_paid: "",
-      luggage_amount: "",
-    });
-  };
-
-  /** Delete */
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this entry?")) return;
-
-    try {
-      await deleteEntry(id);
-      toast.success("Entry deleted");
-      loadEntries(customerId);
-      // if deleting last entry for the customer in this mode, reload customer list
-      await loadCustomers(billingMode);
-    } catch {
-      toast.error("Error deleting entry");
+      toast.error("Error saving entry");
     }
   };
 
   return (
     <div className="col">
       <div className="card">
-        <h2>{editingId ? "Edit Entry" : "Add / Manage Entries"}</h2>
+        <h2>Add / Manage Entries</h2>
 
-        <div style={{ marginBottom: 10 }}>
-          <label style={{ marginRight: 8 }}>Billing Mode:</label>
-          <select
-            className="input"
-            value={billingMode}
-            onChange={(e) => setBillingMode(e.target.value)}
-            style={{ width: 200 }}
-          >
-            <option value="farmer">Farmer Billing</option>
-            <option value="luggage">Luggage Billing</option>
-          </select>
-        </div>
+        <label>Billing Mode:</label>
+        <select
+          className="input"
+          value={billingMode}
+          onChange={(e) => setBillingMode(e.target.value)}
+        >
+          <option value="farmer">Farmer</option>
+          <option value="luggage">Luggage</option>
+        </select>
 
         <form className="form-row" onSubmit={submit}>
           <select
@@ -295,18 +174,20 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             value={customerId}
             onChange={(e) => {
               setCustomerId(e.target.value);
-              const selected = customers.find((c) => c.id === Number(e.target.value));
-              onSelectCustomer && onSelectCustomer(selected);
             }}
           >
             <option value="">-- select customer --</option>
-            {customers.map((c) => (
+            {filteredCustomers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} • #{c.serial}
               </option>
             ))}
           </select>
 
+          
+
+
+          {/* DATE */}
           <input
             className="input"
             type="date"
@@ -314,45 +195,47 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, date: e.target.value })}
           />
 
+          {/* ITEM NAME */}
           <input
             className="input"
-            type="text"
             name="item_name"
             placeholder="Item Name"
             value={form.item_name}
-            onChange={(e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))}
+            onChange={(e) => setForm({ ...form, item_name: e.target.value })}
           />
 
+          {/* KGS */}
           <input
             className="input"
-            placeholder="Kgs"
             type="number"
+            placeholder="Kgs"
             value={form.kgs}
             onChange={(e) => setForm({ ...form, kgs: e.target.value })}
           />
 
+          {/* RATE */}
           <input
             className="input"
-            placeholder="Rate"
             type="number"
+            placeholder="Rate"
             value={form.rate}
             onChange={(e) => setForm({ ...form, rate: e.target.value })}
           />
 
+          {/* MODE-BASED INPUTS */}
           {billingMode === "farmer" ? (
             <>
               <input
                 className="input"
-                placeholder="Commission"
                 type="number"
+                placeholder="Commission"
                 value={form.commission}
                 onChange={(e) => setForm({ ...form, commission: e.target.value })}
               />
-
               <input
                 className="input"
-                placeholder="Bags"
                 type="number"
+                placeholder="Bags"
                 value={form.bags}
                 onChange={(e) => setForm({ ...form, bags: e.target.value })}
               />
@@ -360,8 +243,8 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
           ) : (
             <input
               className="input"
-              placeholder="Luggage Amount (₹)"
               type="number"
+              placeholder="Luggage Amount (₹)"
               value={form.luggage_amount}
               onChange={(e) => setForm({ ...form, luggage_amount: e.target.value })}
             />
@@ -369,8 +252,8 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
 
           <input
             className="input"
-            placeholder="Already Paid"
             type="number"
+            placeholder="Already Paid"
             value={form.already_paid}
             onChange={(e) => setForm({ ...form, already_paid: e.target.value })}
           />
@@ -379,9 +262,8 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             <button className="btn" type="submit">
               {editingId ? "Save Changes" : "Add Entry"}
             </button>
-
             {editingId && (
-              <button type="button" className="btn ghost" onClick={handleCancel}>
+              <button className="btn ghost" onClick={handleCancel}>
                 Cancel
               </button>
             )}
@@ -394,7 +276,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
         <h2>Entries — {billingMode === "luggage" ? "Luggage" : "Farmer"}</h2>
 
         {loading ? (
-          <div style={{ padding: 12 }}>Loading entries...</div>
+          <div>Loading entries...</div>
         ) : (
           <table className="table">
             <thead>
@@ -404,7 +286,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                 {billingMode === "luggage" ? <th>Luggage</th> : <th>Bags</th>}
                 <th>Kgs</th>
                 <th>Rate</th>
-                {billingMode === "farmer" && <th>Comm</th>}
+                {billingMode === "farmer" && <th>Commission</th>}
                 <th>Amount</th>
                 <th>Paid</th>
                 <th>Already Paid</th>
@@ -416,7 +298,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             <tbody>
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan="11" style={{ padding: 12, textAlign: "center" }}>
+                  <td colSpan="11" style={{ textAlign: "center" }}>
                     No entries found
                   </td>
                 </tr>
@@ -425,20 +307,24 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                   <tr key={e.id}>
                     <td>{dayjs(e.entry_date).format("DD/MM/YYYY")}</td>
                     <td>{e.item_name || "-"}</td>
+
                     {billingMode === "luggage" ? (
                       <td>₹{Number(e.luggage_amount || 0).toFixed(2)}</td>
                     ) : (
                       <td>{e.bags || 0}</td>
                     )}
+
                     <td>{e.kgs}</td>
                     <td>{e.rate}</td>
-                    {billingMode === "farmer" && <td>{e.commission}</td>}
-                    <td>₹{Number(e.amount).toFixed(2)}</td>
-                    <td>₹{Number(e.paid_amount).toFixed(2)}</td>
-                    <td>₹{Number(e.already_paid || 0).toFixed(2)}</td>
-                    <td>₹{Number(e.remaining).toFixed(2)}</td>
 
-                    <td style={{ display: "flex", gap: "6px" }}>
+                    {billingMode === "farmer" && <td>{e.commission}</td>}
+
+                    <td>₹{e.amount.toFixed(2)}</td>
+                    <td>₹{Number(e.paid_amount).toFixed(2)}</td>
+                    <td>₹{Number(e.already_paid).toFixed(2)}</td>
+                    <td>₹{e.remaining.toFixed(2)}</td>
+
+                    <td style={{ display: "flex", gap: 6 }}>
                       <button className="btn ghost" onClick={() => handleEdit(e)}>
                         Edit
                       </button>
