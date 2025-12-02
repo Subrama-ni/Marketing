@@ -1,4 +1,4 @@
-// src/middleware/auth.js
+// backend/src/middleware/auth.js
 import jwt from "jsonwebtoken";
 import pool from "../db.js";
 
@@ -13,56 +13,64 @@ export const auth = async (req, res, next) => {
 
     const token = header.split(" ")[1];
 
-    // Verify token using secret (fallback present)
     let decoded;
     try {
       decoded = jwt.verify(token, JWT_SECRET);
     } catch (err) {
-      console.error("JWT verify failed:", err);
+      console.error("JWT verify failed:", err.message || err);
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    req.user = decoded;
     const userId = decoded.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
 
-    // Load user settings (if any)
-    const result = await pool.query("SELECT * FROM user_settings WHERE user_id=$1", [userId]);
-    const settings = result.rows[0] ?? null;
+    // attach user info
+    req.user = { id: userId, email: decoded.email };
+
+    // load settings; if fail, don't block request
+    let settings = null;
+    try {
+      const { rows } = await pool.query(
+        "SELECT * FROM user_settings WHERE user_id=$1",
+        [userId]
+      );
+      settings = rows[0] || null;
+    } catch (err2) {
+      console.error("settings query failed:", err2.message || err2);
+    }
 
     const now = Date.now();
+    const lastActiveHeader = req.headers["x-last-active"];
+    const lastActive = lastActiveHeader ? Number(lastActiveHeader) : null;
 
-    // Prefer x-last-active header (client should send) — fallback to last_active in DB or token.lastActive (if present)
-    const headerLastActive = Number(req.headers["x-last-active"]) || null;
-    const dbLastActive = settings?.last_active ? Number(settings.last_active) : null;
-    const tokenLastActive = decoded.lastActive ? Number(decoded.lastActive) : null;
+    if (settings) {
+      const activeEnabled = !!settings.active_logout_enabled;
+      const inactiveEnabled = !!settings.inactive_logout_enabled;
 
-    const lastActive = headerLastActive || dbLastActive || tokenLastActive || now;
+      const activeMs = (settings.active_timeout_minutes || 10) * 60000;   // default 10
+      const inactiveMs = (settings.inactive_timeout_minutes || 10) * 60000;
 
-    // Defaults
-    const activeEnabled = settings?.active_logout_enabled ?? false;
-    const inactiveEnabled = settings?.inactive_logout_enabled ?? false;
-    const activeMinutes = settings?.active_timeout_minutes ?? 10;
-    const inactiveMinutes = settings?.inactive_timeout_minutes ?? 10;
+      // ACTIVE (absolute) timeout — based on token iat
+      if (activeEnabled && decoded.iat) {
+        const issuedAtMs = decoded.iat * 1000;
+        if (now - issuedAtMs > activeMs) {
+          return res
+            .status(441)
+            .json({ message: "Session expired (time limit)" });
+        }
+      }
 
-    // INACTIVE TIMEOUT (based on lastActive)
-    if (inactiveEnabled) {
-      const inactiveLimitMs = Number(inactiveMinutes) * 60000;
-      if (now - lastActive > inactiveLimitMs) {
-        return res.status(440).json({ message: "Session expired (inactive)" });
+      // INACTIVE timeout — based on frontend's lastActive header
+      if (inactiveEnabled && lastActive) {
+        if (now - lastActive > inactiveMs) {
+          return res
+            .status(440)
+            .json({ message: "Session expired (inactive)" });
+        }
       }
     }
-
-    // ACTIVE TIMEOUT (based on token iat)
-    if (activeEnabled) {
-      const activeLimitMs = Number(activeMinutes) * 60000;
-      if (now - decoded.iat * 1000 > activeLimitMs) {
-        return res.status(441).json({ message: "Session expired (time limit)" });
-      }
-    }
-
-    // attach lastActive and settings for downstream handlers
-    req.lastActive = now;
-    req.userSettings = settings;
 
     next();
   } catch (err) {

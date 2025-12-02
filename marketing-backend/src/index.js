@@ -1,4 +1,4 @@
-// index.js
+// backend/src/index.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -15,7 +15,7 @@ dotenv.config();
 
 const app = express();
 
-/* UNIVERSAL CORS (works for local + Render) */
+/* CORS */
 app.use(
   cors({
     origin: ["http://localhost:4001", "http://localhost:3000"],
@@ -24,17 +24,15 @@ app.use(
       "Content-Type",
       "Authorization",
       "x-last-active",
-      "Accept",
-      "Origin",
-      "X-Requested-With",
     ],
     credentials: true,
   })
 );
+app.options("*", cors());
 
 app.use(express.json());
 
-/* SAFE DB INIT — create minimal tables if missing */
+/* SAFE DB INIT */
 async function initDB() {
   try {
     console.log("⏳ Initializing DB…");
@@ -83,6 +81,33 @@ async function initDB() {
       );
     `);
 
+    // ensure additional columns
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='entries' AND column_name='already_paid'
+        ) THEN
+          ALTER TABLE entries ADD COLUMN already_paid NUMERIC(12,2) DEFAULT 0;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='entries' AND column_name='billing_type'
+        ) THEN
+          ALTER TABLE entries ADD COLUMN billing_type VARCHAR(20) DEFAULT 'farmer';
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='entries' AND column_name='luggage_amount'
+        ) THEN
+          ALTER TABLE entries ADD COLUMN luggage_amount NUMERIC(12,2) DEFAULT 0;
+        END IF;
+      END$$;
+    `);
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY,
@@ -99,17 +124,15 @@ async function initDB() {
       );
     `);
 
-    // user settings table
+    // User settings (one row per user)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS user_settings (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER UNIQUE REFERENCES users(id),
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         inactive_logout_enabled BOOLEAN DEFAULT false,
         inactive_timeout_minutes INTEGER DEFAULT 10,
         active_logout_enabled BOOLEAN DEFAULT false,
         active_timeout_minutes INTEGER DEFAULT 10,
-        last_active BIGINT DEFAULT (extract(epoch from now())*1000)::bigint,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        last_active BIGINT
       );
     `);
 
@@ -133,6 +156,7 @@ app.get("/healthz", (req, res) => res.status(200).send("OK"));
 const __dirname = path.resolve();
 app.use("/bills", express.static(path.join(__dirname, "bills")));
 
+/* GLOBAL ERROR HANDLER */
 app.use((err, req, res, next) => {
   console.error("🔥 SERVER ERROR:", err.message || err);
   res.setHeader("Access-Control-Allow-Origin", "*");

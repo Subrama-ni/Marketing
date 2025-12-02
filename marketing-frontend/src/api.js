@@ -1,4 +1,4 @@
-// src/api.js (frontend)
+// frontend/src/api.js
 import axios from "axios";
 import dayjs from "dayjs";
 import { toast } from "react-toastify";
@@ -10,36 +10,36 @@ const API = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Request interceptor: attach token and x-last-active header
+/* REQUEST INTERCEPTOR */
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
 
-  // last active timestamp (from localStorage updated by sessionActivity)
+  // last active (set by sessionActivity)
   const lastActive = localStorage.getItem("lastActive") || Date.now();
   config.headers["x-last-active"] = lastActive;
 
   return config;
 });
 
-// Response interceptor
+/* RESPONSE INTERCEPTOR */
 API.interceptors.response.use(
   (res) => res,
   (err) => {
     const status = err.response?.status;
 
-    // Session expired codes used by backend
     if (status === 440 || status === 441) {
-      toast.error(err.response.data?.message || "Session expired. Please login again.");
+      toast.error(err.response?.data?.message || "Session expired. Please login again.");
       localStorage.removeItem("token");
+      localStorage.removeItem("user");
       setTimeout(() => (window.location.href = "/login"), 800);
     }
 
-    // Unauthorized -> remove token to prevent infinite 401 loops
+    // plain 401 → just clear token; let UI handle route protection
     if (status === 401) {
-      // allow UI to handle redirect
-      console.warn("API unauthorized - removing token");
+      console.warn("API 401 - clearing token");
       localStorage.removeItem("token");
+      localStorage.removeItem("user");
     }
 
     return Promise.reject(err);
@@ -52,7 +52,8 @@ const handleError = (error) => {
   throw error;
 };
 
-/* Customers */
+/* ----------------- Customers ----------------- */
+
 export const getCustomers = async (params = {}) => {
   try {
     return await API.get(`/customers`, { params });
@@ -60,6 +61,7 @@ export const getCustomers = async (params = {}) => {
     handleError(e);
   }
 };
+
 export const createCustomer = async (data) => {
   try {
     return await API.post(`/customers`, data);
@@ -67,6 +69,7 @@ export const createCustomer = async (data) => {
     handleError(e);
   }
 };
+
 export const updateCustomer = async (id, data) => {
   try {
     return await API.put(`/customers/${id}`, data);
@@ -74,6 +77,7 @@ export const updateCustomer = async (id, data) => {
     handleError(e);
   }
 };
+
 export const deleteCustomer = async (id) => {
   try {
     return await API.delete(`/customers/${id}`);
@@ -82,12 +86,13 @@ export const deleteCustomer = async (id) => {
   }
 };
 
-/* Helper */
+// Helper
 export const getCustomersByMode = async (billingType) => {
   return getCustomers({ billingType });
 };
 
-/* Entries */
+/* ----------------- Entries ----------------- */
+
 export const createEntry = async (data) => {
   try {
     const payload = {
@@ -136,18 +141,26 @@ export const deleteEntry = async (id) => {
   }
 };
 
-/* Payments */
+/* ----------------- Payments ----------------- */
+
 const normalizeDateForApi = (d) => {
   if (!d) return null;
   const parsed = dayjs(d);
   return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
 };
 
-export const getEntriesForPayment = async (customerId, fromDate, toDate, billingType = "farmer") => {
+export const getEntriesForPayment = async (
+  customerId,
+  fromDate,
+  toDate,
+  billingType = "farmer"
+) => {
   try {
     const f = normalizeDateForApi(fromDate);
     const t = normalizeDateForApi(toDate);
-    return await API.get(`/payments/entries/${customerId}`, { params: { fromDate: f, toDate: t, billingType } });
+    return await API.get(`/payments/entries/${customerId}`, {
+      params: { fromDate: f, toDate: t, billingType },
+    });
   } catch (error) {
     handleError(error);
   }
@@ -169,7 +182,8 @@ export const getPaymentHistory = async (customerId) => {
   }
 };
 
-/* Auth */
+/* ----------------- Auth ----------------- */
+
 export const loginUser = async (data) => {
   try {
     return await API.post(`/auth/login`, data);
@@ -177,6 +191,7 @@ export const loginUser = async (data) => {
     handleError(error);
   }
 };
+
 export const registerUser = async (data) => {
   try {
     return await API.post(`/auth/register`, data);
@@ -184,6 +199,7 @@ export const registerUser = async (data) => {
     handleError(error);
   }
 };
+
 export const forgotPasswordRequest = async (email) => {
   try {
     return await API.post(`/auth/forgot-password`, { email });
@@ -191,6 +207,7 @@ export const forgotPasswordRequest = async (email) => {
     handleError(error);
   }
 };
+
 export const resetPasswordRequest = async (token, newPassword) => {
   try {
     return await API.post(`/auth/reset-password`, { token, newPassword });
@@ -199,7 +216,8 @@ export const resetPasswordRequest = async (token, newPassword) => {
   }
 };
 
-/* Settings */
+/* ----------------- Settings ----------------- */
+
 export const getSettings = async () => {
   try {
     return await API.get("/settings");
