@@ -15,17 +15,23 @@ dotenv.config();
 
 const app = express();
 
-/* CORS */
+// -------- FIXED CORS FOR RENDER ↔ RENDER ------------
+const allowedOrigins = [
+  "http://localhost:4001",
+  process.env.FRONTEND_URL,                   // example: https://marketing-platform-9ua2.onrender.com
+  "https://marketing-platform-9ua2.onrender.com"
+];
+
 app.use(
   cors({
-    origin: ["http://localhost:4001", "http://localhost:3000"],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    origin: allowedOrigins,
+    credentials: true,
+    methods: "GET,POST,PUT,DELETE",
     allowedHeaders: [
       "Content-Type",
       "Authorization",
-      "x-last-active",
-    ],
-    credentials: true,
+      "x-last-active"
+    ]
   })
 );
 app.options("*", cors());
