@@ -19,7 +19,9 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "react-scripts build",
+    "serve-build": "serve -s build -l 4001",
+    "lint": "eslint . --ext .js,.jsx"
   },
   "browserslist": {
     "production": [
@@ -34,7 +36,8 @@
     ]
   },
   "devDependencies": {
-    "eslint-plugin-react-hooks": "^7.0.1"
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "serve": "^14.2.5"
   },
   "eslintConfig": {
     "plugins": [
