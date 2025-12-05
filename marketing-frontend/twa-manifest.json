@@ -12,39 +12,36 @@
   "navigationDividerColorDark": "#000000",
   "backgroundColor": "#FFFFFF",
   "enableNotifications": true,
-
-  "startUrl": "https://marketing-platform-9ua2.onrender.com/",
-  
+  "startUrl": "https://marketing-platform-9ua2.onrender.com",
   "iconUrl": "http://localhost:4001/icons/icon-512x512.png",
   "maskableIconUrl": "http://localhost:4001/icons/icon-512x512.png",
   "monochromeIconUrl": "http://localhost:4001/icons/icon-512x512.png",
-
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "C:\\Users\\st562\\OneDrive\\Desktop\\Marketing\\marketing-frontend\\android.keystore",
     "alias": "android"
   },
-
-  "appVersionName": "2",
-  "appVersionCode": 2,
+  "appVersionName": "6",
+  "appVersionCode": 6,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
-
   "webManifestUrl": "https://marketing-platform-9ua2.onrender.com/manifest.json",
   "fallbackType": "customtabs",
-
   "features": {
-    "playBilling": { "enabled": true },
-    "locationDelegation": { "enabled": true }
+    "playBilling": {
+      "enabled": true
+    },
+    "locationDelegation": {
+      "enabled": true
+    }
   },
-
-  "alphaDependencies": { "enabled": false },
+  "alphaDependencies": {
+    "enabled": false
+  },
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
-
   "fullScopeUrl": "https://marketing-platform-9ua2.onrender.com/",
-
   "minSdkVersion": 21,
   "orientation": "portrait",
   "fingerprints": [],
@@ -54,5 +51,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "2"
+  "appVersion": "6"
 }
