@@ -1,5 +1,5 @@
 {
-  "packageId": "com.sweetprincess.marketingplatform",
+  "packageId": "com.marketing.platform",
   "host": "marketing-platform-9ua2.onrender.com",
   "name": "Marketing Platform",
   "launcherName": "Marketing",
@@ -12,17 +12,17 @@
   "navigationDividerColorDark": "#000000",
   "backgroundColor": "#FFFFFF",
   "enableNotifications": true,
-  "startUrl": "https://marketing-platform-9ua2.onrender.com",
-  "iconUrl": "http://localhost:4001/icons/icon-512x512.png",
-  "maskableIconUrl": "http://localhost:4001/icons/icon-512x512.png",
-  "monochromeIconUrl": "http://localhost:4001/icons/icon-512x512.png",
+  "startUrl": "/",
+  "iconUrl": "https://marketing-platform-9ua2.onrender.com/icon-512x512.png",
+  "maskableIconUrl": "https://marketing-platform-9ua2.onrender.com/icon-512x512.png",
+  "monochromeIconUrl": "https://marketing-platform-9ua2.onrender.com/icon-512x512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "C:\\Users\\st562\\OneDrive\\Desktop\\Marketing\\marketing-frontend\\android.keystore",
     "alias": "android"
   },
-  "appVersionName": "6",
-  "appVersionCode": 6,
+  "appVersionName": "1",
+  "appVersionCode": 1,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://marketing-platform-9ua2.onrender.com/manifest.json",
@@ -51,5 +51,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "6"
+  "appVersion": "1"
 }
