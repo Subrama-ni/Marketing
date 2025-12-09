@@ -3,44 +3,38 @@ import axios from "axios";
 import dayjs from "dayjs";
 import { toast } from "react-toastify";
 
-/* -------------------------------
-   FIXED BASE URL FOR RENDER
--------------------------------- */
-const BASE =
-  process.env.REACT_APP_API_URL ||
-  "https://marketing-jc8w.onrender.com/api"; // fallback for production
+/* ============================================================
+   🌍 BASE URL — FINAL RENDER URL FOR BACKEND
+   ============================================================ */
+const BASE = "https://marketing-db-ihb3.onrender.com/api";
+ // your Render backend URL
 
 console.log("🌍 API Base URL:", BASE);
+console.log("🔥 ENV API URL =", process.env.REACT_APP_API_URL);
+console.log("🔥 FINAL BASE URL =", BASE);
 
 const API = axios.create({
   baseURL: BASE,
-  headers: {
-    "Content-Type": "application/json",
-  },
-  withCredentials: false, // important for Render
+  headers: { "Content-Type": "application/json" },
+  withCredentials: false, // must be false for Render
 });
 
-/* -------------------------------
-   REQUEST INTERCEPTOR
--------------------------------- */
+/* ============================================================
+   🔐 REQUEST INTERCEPTOR
+   ============================================================ */
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
 
-  // Add x-last-active ONLY if CORS allows it
   const lastActive = localStorage.getItem("lastActive");
-  if (lastActive) {
-    config.headers["x-last-active"] = lastActive;
-  }
+  if (lastActive) config.headers["x-last-active"] = lastActive;
 
   return config;
 });
 
-/* -------------------------------
-   RESPONSE INTERCEPTOR
--------------------------------- */
+/* ============================================================
+   🔐 RESPONSE INTERCEPTOR – SESSION & TOKEN HANDLING
+   ============================================================ */
 API.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -48,7 +42,7 @@ API.interceptors.response.use(
 
     const status = err.response?.status;
 
-    // 🔐 SESSION TIMEOUT
+    // 🔒 Session Expired
     if (status === 440 || status === 441) {
       toast.error(
         err.response?.data?.message || "Session expired. Please login again."
@@ -59,7 +53,7 @@ API.interceptors.response.use(
       return;
     }
 
-    // ❌ INVALID TOKEN (401)
+    // ❌ Unauthorized Token
     if (status === 401) {
       console.warn("401 Unauthorized → Clearing token");
       localStorage.removeItem("token");
@@ -70,23 +64,22 @@ API.interceptors.response.use(
   }
 );
 
-/* -------------------------------
-   COMMON ERROR HANDLER
--------------------------------- */
+/* ============================================================
+   ❗ COMMON ERROR HANDLER
+   ============================================================ */
 const handleError = (error) => {
   console.error("❌ API Error:", error.response?.data || error.message);
 
   toast.error(error.response?.data?.message || "Something went wrong");
-
   throw error;
 };
 
-/* -------------------------------
-   CUSTOMERS
--------------------------------- */
+/* ============================================================
+   👤 CUSTOMERS
+   ============================================================ */
 export const getCustomers = async (params = {}) => {
   try {
-    return await API.get(`/customers`, { params });
+    return await API.get("/customers", { params });
   } catch (e) {
     handleError(e);
   }
@@ -94,7 +87,7 @@ export const getCustomers = async (params = {}) => {
 
 export const createCustomer = async (data) => {
   try {
-    return await API.post(`/customers`, data);
+    return await API.post("/customers", data);
   } catch (e) {
     handleError(e);
   }
@@ -119,20 +112,22 @@ export const deleteCustomer = async (id) => {
 export const getCustomersByMode = async (billingType) =>
   getCustomers({ billingType });
 
-/* -------------------------------
-   ENTRIES
--------------------------------- */
+/* ============================================================
+   📦 ENTRIES
+   ============================================================ */
+const normalizeNumber = (v) => Number(v || 0);
+
 export const createEntry = async (data) => {
   try {
     const payload = {
       ...data,
-      kgs: Number(data.kgs),
-      rate: Number(data.rate),
-      commission: Number(data.commission || 0),
-      bags: Number(data.bags || 0),
-      luggage_amount: Number(data.luggage_amount || 0),
+      kgs: normalizeNumber(data.kgs),
+      rate: normalizeNumber(data.rate),
+      commission: normalizeNumber(data.commission),
+      bags: normalizeNumber(data.bags),
+      luggage_amount: normalizeNumber(data.luggage_amount),
     };
-    return await API.post(`/entries`, payload);
+    return await API.post("/entries", payload);
   } catch (e) {
     handleError(e);
   }
@@ -150,11 +145,11 @@ export const updateEntry = async (id, data) => {
   try {
     const payload = {
       ...data,
-      kgs: Number(data.kgs),
-      rate: Number(data.rate),
-      commission: Number(data.commission || 0),
-      bags: Number(data.bags || 0),
-      luggage_amount: Number(data.luggage_amount || 0),
+      kgs: normalizeNumber(data.kgs),
+      rate: normalizeNumber(data.rate),
+      commission: normalizeNumber(data.commission),
+      bags: normalizeNumber(data.bags),
+      luggage_amount: normalizeNumber(data.luggage_amount),
     };
     return await API.put(`/entries/${id}`, payload);
   } catch (e) {
@@ -170,10 +165,10 @@ export const deleteEntry = async (id) => {
   }
 };
 
-/* -------------------------------
-   PAYMENTS
--------------------------------- */
-const normalizeDateForApi = (d) => {
+/* ============================================================
+   💰 PAYMENTS
+   ============================================================ */
+const normalizeDate = (d) => {
   if (!d) return null;
   const parsed = dayjs(d);
   return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
@@ -186,11 +181,12 @@ export const getEntriesForPayment = async (
   billingType = "farmer"
 ) => {
   try {
-    const f = normalizeDateForApi(fromDate);
-    const t = normalizeDateForApi(toDate);
-
     return await API.get(`/payments/entries/${customerId}`, {
-      params: { fromDate: f, toDate: t, billingType },
+      params: {
+        fromDate: normalizeDate(fromDate),
+        toDate: normalizeDate(toDate),
+        billingType,
+      },
     });
   } catch (e) {
     handleError(e);
@@ -199,7 +195,7 @@ export const getEntriesForPayment = async (
 
 export const makePayment = async (data) => {
   try {
-    return await API.post(`/payments`, data);
+    return await API.post("/payments", data);
   } catch (e) {
     handleError(e);
   }
@@ -213,12 +209,12 @@ export const getPaymentHistory = async (customerId) => {
   }
 };
 
-/* -------------------------------
-   AUTH
--------------------------------- */
+/* ============================================================
+   🔐 AUTH
+   ============================================================ */
 export const loginUser = async (data) => {
   try {
-    return await API.post(`/auth/login`, data);
+    return await API.post("/auth/login", data);
   } catch (e) {
     handleError(e);
   }
@@ -226,7 +222,7 @@ export const loginUser = async (data) => {
 
 export const registerUser = async (data) => {
   try {
-    return await API.post(`/auth/register`, data);
+    return await API.post("/auth/register", data);
   } catch (e) {
     handleError(e);
   }
@@ -234,7 +230,7 @@ export const registerUser = async (data) => {
 
 export const forgotPasswordRequest = async (email) => {
   try {
-    return await API.post(`/auth/forgot-password`, { email });
+    return await API.post("/auth/forgot-password", { email });
   } catch (e) {
     handleError(e);
   }
@@ -242,18 +238,18 @@ export const forgotPasswordRequest = async (email) => {
 
 export const resetPasswordRequest = async (token, newPassword) => {
   try {
-    return await API.post(`/auth/reset-password`, { token, newPassword });
+    return await API.post("/auth/reset-password", { token, newPassword });
   } catch (e) {
     handleError(e);
   }
 };
 
-/* -------------------------------
-   SETTINGS
--------------------------------- */
+/* ============================================================
+   ⚙ SETTINGS
+   ============================================================ */
 export const getSettings = async () => {
   try {
-    return await API.get(`/settings`);
+    return await API.get("/settings");
   } catch (e) {
     handleError(e);
   }
@@ -261,7 +257,7 @@ export const getSettings = async () => {
 
 export const saveSettings = async (data) => {
   try {
-    return await API.put(`/settings`, data);
+    return await API.put("/settings", data);
   } catch (e) {
     handleError(e);
   }

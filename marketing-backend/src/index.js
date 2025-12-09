@@ -12,33 +12,64 @@ import authRoutes from "./routes/authRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 
 dotenv.config();
-
 const app = express();
 
-// -------- FIXED CORS FOR RENDER ↔ RENDER ------------
-const allowedOrigins = [
-  "http://localhost:4001",
-  process.env.FRONTEND_URL,                   // example: https://marketing-platform-9ua2.onrender.com
-  "https://marketing-platform-9ua2.onrender.com"
-];
+/* ------------------------------------
+   🚀 REQUEST LOGGER (debug)
+------------------------------------ */
+app.use((req, res, next) => {
+  console.log("👉", req.method, req.path, "Origin:", req.headers.origin);
+  next();
+});
 
+/* ------------------------------------
+   🔥 FIX 1 — BASIC CORS USING PACKAGE
+------------------------------------ */
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      const allowed = [
+        "http://localhost:3001",
+        "http://localhost:3000",
+        "http://localhost:4000",
+        "http://localhost:4001",
+        "https://marketing-platform-9ua2.onrender.com", // frontend
+        "https://marketing-db-ihb3.onrender.com"        // backend
+      ];
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
     credentials: true,
-    methods: "GET,POST,PUT,DELETE",
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "x-last-active"
-    ]
+    methods: "GET,POST,PUT,DELETE,OPTIONS",
+    allowedHeaders: "Content-Type, Authorization, x-last-active",
   })
 );
-app.options("*", cors());
 
+/* ------------------------------------
+   🔥 FIX 2 — Manual CORS for OPTIONS
+------------------------------------ */
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, x-last-active"
+  );
+  return res.sendStatus(200);
+});
+
+/* ------------------------------------
+   BODY PARSER
+------------------------------------ */
 app.use(express.json());
 
-/* SAFE DB INIT */
+/* ------------------------------------
+   DATABASE INIT
+------------------------------------ */
 async function initDB() {
   try {
     console.log("⏳ Initializing DB…");
@@ -87,33 +118,6 @@ async function initDB() {
       );
     `);
 
-    // ensure additional columns
-    await pool.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name='entries' AND column_name='already_paid'
-        ) THEN
-          ALTER TABLE entries ADD COLUMN already_paid NUMERIC(12,2) DEFAULT 0;
-        END IF;
-
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name='entries' AND column_name='billing_type'
-        ) THEN
-          ALTER TABLE entries ADD COLUMN billing_type VARCHAR(20) DEFAULT 'farmer';
-        END IF;
-
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name='entries' AND column_name='luggage_amount'
-        ) THEN
-          ALTER TABLE entries ADD COLUMN luggage_amount NUMERIC(12,2) DEFAULT 0;
-        END IF;
-      END$$;
-    `);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY,
@@ -130,7 +134,6 @@ async function initDB() {
       );
     `);
 
-    // User settings (one row per user)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS user_settings (
         user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -144,13 +147,15 @@ async function initDB() {
 
     console.log("✅ DB Ready");
   } catch (err) {
-    console.error("❌ DB INIT ERROR (ignored):", err.message || err);
+    console.error("❌ DB INIT ERROR:", err.message);
   }
 }
 
 initDB();
 
-/* ROUTES */
+/* ------------------------------------
+   ROUTES
+------------------------------------ */
 app.use("/api/auth", authRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/entries", entryRoutes);
@@ -159,19 +164,28 @@ app.use("/api/settings", settingsRoutes);
 
 app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
+/* Serve bills folder */
 const __dirname = path.resolve();
 app.use("/bills", express.static(path.join(__dirname, "bills")));
 
-/* GLOBAL ERROR HANDLER */
+/* ------------------------------------
+   🔥 FIX 3 — GLOBAL ERROR HANDLER WITH CORS
+------------------------------------ */
 app.use((err, req, res, next) => {
-  console.error("🔥 SERVER ERROR:", err.message || err);
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.status(500).json({ message: "Internal Server Error" });
+  console.error("🔥 SERVER ERROR:", err);
+
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  return res.status(500).json({ message: "Internal Server Error" });
 });
 
+/* ------------------------------------
+   START SERVER
+------------------------------------ */
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, "0.0.0.0", () =>
-  console.log(`🚀 Server Live on port ${PORT}`)
+  console.log(`🚀 Backend running on port ${PORT}`)
 );
 
 export default pool;

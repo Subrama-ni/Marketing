@@ -12,6 +12,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { BillingModeProvider } from "./context/BillingModeContext";
 
 import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import CustomersPage from "./pages/CustomersPage";
 import EntriesPage from "./pages/EntriesPage";
@@ -29,6 +30,7 @@ import "react-toastify/dist/ReactToastify.css";
 import useAutoLogout from "./useAutoLogout";
 import { initActivityListeners } from "./sessionActivity";
 import { getSettings } from "./api";
+import LandingPage from "./pages/LandingPage";
 
 const DEFAULT_ACTIVE_MINUTES = 10;
 const DEFAULT_INACTIVE_MINUTES = 10;
@@ -399,6 +401,11 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public */}
+  <Route path="/" element={<LandingPage />} />
+  <Route path="/login" element={<LoginPage />} />
+  <Route path="/register" element={<RegisterPage />} />
+  <Route path="/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
+
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
