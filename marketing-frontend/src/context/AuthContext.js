@@ -1,85 +1,66 @@
 // src/context/AuthContext.js
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 
 const AuthContext = createContext();
 
-/**
- * ✅ AuthProvider manages login state, token persistence, and logout handling.
- */
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [initializing, setInitializing] = useState(true);
   const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true); // Prevent flicker during auto-login restore
+  const [user, setUser] = useState(null);
 
-  // 🧠 Load auth state from localStorage on mount
+  // Restore login state once on app load
   useEffect(() => {
     try {
       const storedToken = localStorage.getItem("token");
       const storedUser = localStorage.getItem("user");
+
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
       }
     } catch (err) {
-      console.error("❌ Error restoring auth state:", err);
+      console.error("❌ Failed restoring login:", err);
       localStorage.removeItem("token");
       localStorage.removeItem("user");
     } finally {
-      setLoading(false);
+      setInitializing(false);
     }
   }, []);
 
-  /**
-   * ✅ login: saves token & user data to both state and localStorage
-   */
   const login = useCallback((tokenValue, userData) => {
-    if (!tokenValue || !userData) return;
     localStorage.setItem("token", tokenValue);
     localStorage.setItem("user", JSON.stringify(userData));
+    localStorage.setItem("loginTime", String(Date.now()));
+
     setToken(tokenValue);
     setUser(userData);
   }, []);
 
-  /**
-   * ✅ logout: clears token & user from both state and localStorage
-   */
   const logout = useCallback(() => {
+    // ❌ DO NOT CLEAR ALL STORAGE (breaks listeners/settings)
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    localStorage.removeItem("loginTime");
+
     setToken(null);
     setUser(null);
   }, []);
 
-  /**
-   * ✅ Optional: handle token expiration auto logout (if token has expiry)
-   * Example: Add expiry field to user data or JWT decode logic here
-   */
-  // useEffect(() => {
-  //   const expiry = user?.tokenExpiry;
-  //   if (expiry) {
-  //     const timeout = setTimeout(logout, expiry - Date.now());
-  //     return () => clearTimeout(timeout);
-  //   }
-  // }, [user, logout]);
-
-  const value = {
-    user,
-    token,
-    login,
-    logout,
-    loading,
-    isAuthenticated: !!token,
-  };
-
   return (
-    <AuthContext.Provider value={value}>
-      {/* Prevent render until auth state is restored */}
-      {!loading && children}
+    <AuthContext.Provider
+      value={{
+        initializing,
+        token,
+        user,
+        login,
+        logout,
+        isAuthenticated: !initializing && !!token,
+      }}
+    >
+      {/* Prevent app from rendering until auth restored */}
+      {!initializing && children}
     </AuthContext.Provider>
   );
 }
 
-/**
- * ✅ useAuth: custom hook to access auth state anywhere
- */
 export const useAuth = () => useContext(AuthContext);

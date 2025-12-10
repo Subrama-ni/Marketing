@@ -1,34 +1,52 @@
+// src/components/Sidebar.js
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { MdDashboard, MdPeople, MdListAlt, MdPayments, MdLogout, MdMenu, MdSettings } from "react-icons/md";
+import {
+  MdDashboard,
+  MdPeople,
+  MdListAlt,
+  MdPayments,
+  MdLogout,
+  MdMenu,
+  MdSettings,
+} from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
 
 export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme }) {
   const { logout } = useAuth();
   const { pathname } = useLocation();
 
-  const menuItems = [
-    { icon: <MdDashboard />, label: "Dashboard", to: "/" },
-    { icon: <MdPeople />, label: "Customers", to: "/customers" },
-    { icon: <MdListAlt />, label: "Entries", to: "/entries" },
-    { icon: <MdPayments />, label: "Payments", to: "/payments" },
-    { icon: <MdSettings />, label: "Settings", to: "/settings" },
+  const items = [
+    { label: "Dashboard", to: "/dashboard", icon: <MdDashboard /> },
+    { label: "Customers", to: "/dashboard/customers", icon: <MdPeople /> },
+    { label: "Entries", to: "/dashboard/entries", icon: <MdListAlt /> },
+    { label: "Payments", to: "/dashboard/payments", icon: <MdPayments /> },
+    { label: "Settings", to: "/dashboard/settings", icon: <MdSettings /> },
   ];
 
   return (
     <div className={`premium-sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-top">
-        <button className="menu-btn" onClick={setCollapsed}><MdMenu /></button>
+        <button className="menu-btn" onClick={setCollapsed}>
+          <MdMenu />
+        </button>
         {!collapsed && <h3>💼 Smart Billing</h3>}
       </div>
 
       <div className="sidebar-menu">
-        {menuItems.map((item) => (
-          <Link key={item.to} to={item.to} className={`menu-item ${pathname === item.to ? "active" : ""}`}>
-            {item.icon}
-            {!collapsed && <span>{item.label}</span>}
-          </Link>
-        ))}
+        {items.map((item) => {
+          const active = pathname.startsWith(item.to);
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`menu-item ${active ? "active" : ""}`}
+            >
+              {item.icon}
+              {!collapsed && <span>{item.label}</span>}
+            </Link>
+          );
+        })}
       </div>
 
       <div className="sidebar-bottom">
@@ -38,7 +56,12 @@ export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme })
           </button>
         )}
 
-        <button className="logout-btn" onClick={logout}>
+        <button
+          className="logout-btn"
+          onClick={() => {
+            logout(); // ← correct logout
+          }}
+        >
           <MdLogout />
           {!collapsed && <span>Logout</span>}
         </button>

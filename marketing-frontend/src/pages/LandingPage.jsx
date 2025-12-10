@@ -1,9 +1,17 @@
 // src/pages/LandingPage.jsx
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import "./LandingPage.css";
 
 export default function LandingPage() {
+  const { isAuthenticated } = useAuth();
+
+  // 🔥 FIX: Prevent logged-in users from ever seeing landing page
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return (
     <div className="landing-wrapper">
 

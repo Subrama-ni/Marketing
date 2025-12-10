@@ -1,3 +1,4 @@
+// src/pages/LoginPage.js
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -18,27 +19,24 @@ export default function LoginPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      setLoading(true);
+    setLoading(true);
 
+    try {
       if (isRegister) {
         await registerUser(form);
-        toast.success("🎉 Registration successful! Please login.");
+        toast.success("Registration successful. Please login.");
         setIsRegister(false);
       } else {
         const res = await loginUser(form);
 
-        // Store login time here (correct placement)
-        localStorage.setItem("loginTime", Date.now());
-
-        // Auth context login
         login(res.data.token, res.data.user);
 
-        toast.success(`👋 Welcome, ${res.data.user.name}!`);
-        navigate("/dashboard");
+        toast.success(`Welcome, ${res.data.user.name}!`);
+
+        navigate("/dashboard", { replace: true });
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || "Authentication failed");
+      toast.error(err.response?.data?.message || "Login failed");
     } finally {
       setLoading(false);
     }
@@ -52,17 +50,17 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit}>
           {isRegister && (
             <input
+              type="text"
               name="name"
-              placeholder="Full Name"
+              placeholder="Full name"
               value={form.name}
               onChange={handleChange}
-              required
             />
           )}
 
           <input
-            name="email"
             type="email"
+            name="email"
             placeholder="Email"
             value={form.email}
             onChange={handleChange}
@@ -70,8 +68,8 @@ export default function LoginPage() {
           />
 
           <input
-            name="password"
             type="password"
+            name="password"
             placeholder="Password"
             value={form.password}
             onChange={handleChange}
@@ -79,16 +77,12 @@ export default function LoginPage() {
           />
 
           <button type="submit" disabled={loading}>
-            {loading
-              ? "Please wait..."
-              : isRegister
-              ? "Create Account"
-              : "Login"}
+            {loading ? "Please wait…" : isRegister ? "Register" : "Login"}
           </button>
         </form>
 
         <p className="toggle-text">
-          {isRegister ? "Already have an account?" : "New here?"}{" "}
+          {isRegister ? "Already registered?" : "New user?"}{" "}
           <span onClick={() => setIsRegister(!isRegister)}>
             {isRegister ? "Login" : "Register"}
           </span>

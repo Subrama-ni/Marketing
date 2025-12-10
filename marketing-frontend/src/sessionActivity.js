@@ -3,12 +3,16 @@
 let listenersInitialized = false;
 
 /**
- * Tracks user activity and updates localStorage.lastActive.
- * Backend reads this via x-last-active header;
- * Topbar & useAutoLogout also rely on it.
+ * Initializes activity listeners ONLY after login.
+ * Prevents unwanted redirects caused by early lastActive updates.
  */
 export function initActivityListeners() {
   if (typeof window === "undefined") return;
+
+  // Do NOT initialize until user is logged in
+  const token = localStorage.getItem("token");
+  if (!token) return;
+
   if (listenersInitialized) return;
   listenersInitialized = true;
 
@@ -16,12 +20,26 @@ export function initActivityListeners() {
     localStorage.setItem("lastActive", String(Date.now()));
   };
 
-  const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+  const EVENTS = [
+    "click",
+    "mousemove",
+    "mousedown",
+    "keydown",
+    "touchstart",
+    "scroll",
+  ];
 
-  events.forEach((event) =>
-    window.addEventListener(event, updateLastActive)
+  EVENTS.forEach((evt) =>
+    window.addEventListener(evt, updateLastActive, { passive: true })
   );
 
-  // initialize immediately
+  // Set initial timestamp AFTER login
   updateLastActive();
+}
+
+/**
+ * Call this when user logs out to avoid leaking listeners.
+ */
+export function resetActivityListeners() {
+  listenersInitialized = false;
 }
