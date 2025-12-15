@@ -262,3 +262,18 @@ export const saveSettings = async (data) => {
     handleError(e);
   }
 };
+const authHeader = () => ({
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem("token")}`,
+  },
+});
+
+// 🔐 ADMIN APIs
+export const getPendingUsers = () =>
+  axios.get(`${BASE}/admin/pending-users`, authHeader());
+
+export const approveUser = (userId) =>
+  axios.post(`${BASE}/admin/approve-user/${userId}`, {}, authHeader());
+
+export const rejectUser = (userId) =>
+  axios.post(`${BASE}/admin/reject-user/${userId}`, {}, authHeader());

@@ -1,5 +1,10 @@
-// src/context/AuthContext.js
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 
 const AuthContext = createContext();
 
@@ -8,56 +13,67 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
 
-  // Restore login state once on app load
+  // 🔁 Restore auth ONLY once on app load
   useEffect(() => {
     try {
-      const storedToken = localStorage.getItem("token");
-      const storedUser = localStorage.getItem("user");
+      const savedToken = localStorage.getItem("token");
+      const savedUser = localStorage.getItem("user");
 
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+      if (savedToken && savedUser) {
+        setToken(savedToken);
+        setUser(JSON.parse(savedUser));
+      } else {
+        // ✅ CRITICAL: wipe stale session timers
+        localStorage.removeItem("loginTime");
+        localStorage.removeItem("lastActive");
       }
     } catch (err) {
-      console.error("❌ Failed restoring login:", err);
+      console.error("Auth restore error:", err);
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      localStorage.removeItem("loginTime");
+      localStorage.removeItem("lastActive");
     } finally {
       setInitializing(false);
     }
   }, []);
 
-  const login = useCallback((tokenValue, userData) => {
-    localStorage.setItem("token", tokenValue);
-    localStorage.setItem("user", JSON.stringify(userData));
-    localStorage.setItem("loginTime", String(Date.now()));
+  // ✅ LOGIN — session starts HERE
+  const login = useCallback((tok, usr) => {
+    const now = Date.now();
 
-    setToken(tokenValue);
-    setUser(userData);
+    localStorage.setItem("token", tok);
+    localStorage.setItem("user", JSON.stringify(usr));
+    localStorage.setItem("loginTime", String(now));
+    localStorage.setItem("lastActive", String(now));
+
+    setToken(tok);
+    setUser(usr);
   }, []);
 
+  // ✅ LOGOUT — clear ONLY auth + session
   const logout = useCallback(() => {
-    // ❌ DO NOT CLEAR ALL STORAGE (breaks listeners/settings)
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("loginTime");
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  localStorage.removeItem("loginTime");
+  localStorage.removeItem("lastActive"); // ✅ IMPORTANT
 
-    setToken(null);
-    setUser(null);
-  }, []);
+  setToken(null);
+  setUser(null);
+}, []);
+
 
   return (
     <AuthContext.Provider
       value={{
-        initializing,
         token,
         user,
+        initializing,
         login,
         logout,
-        isAuthenticated: !initializing && !!token,
+        isAuthenticated: Boolean(token),
       }}
     >
-      {/* Prevent app from rendering until auth restored */}
       {!initializing && children}
     </AuthContext.Provider>
   );

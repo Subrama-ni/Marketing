@@ -1,6 +1,6 @@
 // src/components/Sidebar.js
 import React from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   MdDashboard,
   MdPeople,
@@ -9,12 +9,14 @@ import {
   MdLogout,
   MdMenu,
   MdSettings,
+  MdAdminPanelSettings,
 } from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
 
 export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme }) {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth(); // ✅ FIX: get user
   const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   const items = [
     { label: "Dashboard", to: "/dashboard", icon: <MdDashboard /> },
@@ -26,6 +28,7 @@ export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme })
 
   return (
     <div className={`premium-sidebar ${collapsed ? "collapsed" : ""}`}>
+      {/* ---------- TOP ---------- */}
       <div className="sidebar-top">
         <button className="menu-btn" onClick={setCollapsed}>
           <MdMenu />
@@ -33,6 +36,7 @@ export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme })
         {!collapsed && <h3>💼 Smart Billing</h3>}
       </div>
 
+      {/* ---------- MENU ---------- */}
       <div className="sidebar-menu">
         {items.map((item) => {
           const active = pathname.startsWith(item.to);
@@ -47,8 +51,22 @@ export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme })
             </Link>
           );
         })}
+
+        {/* 🔐 ADMIN ONLY */}
+        {user?.role === "admin" && (
+          <Link
+            to="/dashboard/admin"
+            className={`menu-item ${
+              pathname.startsWith("/dashboard/admin") ? "active" : ""
+            }`}
+          >
+            <MdAdminPanelSettings />
+            {!collapsed && <span>Admin</span>}
+          </Link>
+        )}
       </div>
 
+      {/* ---------- BOTTOM ---------- */}
       <div className="sidebar-bottom">
         {!collapsed && (
           <button className="theme-switch" onClick={toggleTheme}>
@@ -59,7 +77,8 @@ export default function Sidebar({ collapsed, setCollapsed, theme, toggleTheme })
         <button
           className="logout-btn"
           onClick={() => {
-            logout(); // ← correct logout
+            logout();
+            navigate("/login", { replace: true });
           }}
         >
           <MdLogout />

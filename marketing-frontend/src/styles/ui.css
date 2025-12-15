@@ -1,0 +1,353 @@
+/* frontend/src/styles/ui.css
+   Minimal Corporate Theme (Option D)
+   Drop this in and import it from App.js / index.js
+*/
+
+/* --------- variables --------- */
+:root{
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --muted: #6b7280;
+  --accent: #0f4c81; /* corporate dark blue */
+  --accent-2: #2b6ea3;
+  --border: #e6e9ee;
+  --shadow: 0 6px 18px rgba(25, 41, 61, 0.06);
+  --radius: 10px;
+  --glass: rgba(255,255,255,0.6);
+  --success: #22c55e;
+  --danger: #ef4444;
+  --max-width: 1200px;
+  --text: #111827;
+  --muted-2: #9aa3b2;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+/* Dark-mode toggle (if you use .dark-mode on body) */
+body.dark-mode{
+  --bg: #0b0f15;
+  --surface: #0f1724;
+  --muted: #9aa3b2;
+  --accent: #61a5ff;
+  --border: rgba(255,255,255,0.06);
+  --shadow: 0 6px 18px rgba(2,6,23,0.6);
+  color: #e6eef8;
+  background: linear-gradient(180deg,#071122,#071422);
+}
+
+/* --------- global reset --------- */
+*{box-sizing:border-box}
+html,body,#root{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  line-height:1.45;
+  font-size:14px;
+}
+
+/* keep app wrapper spacing */
+.dashboard-wrapper{
+  display:flex;
+  min-height:100vh;
+  gap:16px;
+}
+
+/* --------- Sidebar --------- */
+.ui-sidebar{
+  width:260px;
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  box-shadow:var(--shadow);
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  transition:width 220ms ease, transform 220ms ease, background 200ms;
+}
+
+.ui-sidebar.collapsed{
+  width:76px;
+}
+
+.ui-sidebar-top{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.menu-toggle{
+  background:transparent;
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--muted);
+  font-size:18px;
+}
+
+.brand{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+
+.brand-mark{
+  width:44px;
+  height:44px;
+  border-radius:8px;
+  background:linear-gradient(180deg,var(--accent),var(--accent-2));
+  color:white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:14px;
+  box-shadow: 0 6px 18px rgba(15,76,129,0.12);
+}
+
+.brand-title{
+  font-weight:700;
+  letter-spacing:0.2px;
+}
+.brand-sub{
+  color:var(--muted);
+  font-size:12px;
+  margin-top:2px;
+}
+
+.ui-nav{
+  margin-top:18px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.ui-nav-item{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:10px 12px;
+  border-radius:8px;
+  color:var(--muted);
+  text-decoration:none;
+  transition:all 180ms ease;
+  font-weight:600;
+}
+
+.ui-nav-item .icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:20px;
+  width:28px;
+  color:var(--accent-2);
+}
+
+.ui-nav-item .label{ font-size:14px; }
+
+.ui-nav-item:hover{
+  background:linear-gradient(90deg, rgba(15,76,129,0.06), rgba(15,76,129,0.03));
+  color:var(--text);
+  transform:translateX(4px);
+}
+
+.ui-nav-item.active{
+  background:linear-gradient(90deg, rgba(15,76,129,0.09), rgba(15,76,129,0.03));
+  color:var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(15,76,129,0.04);
+}
+
+.ui-sidebar-bottom{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:space-between;
+  margin-top:14px;
+}
+
+/* Icon-only buttons */
+.ui-icon-btn{
+  border:1px solid var(--border);
+  background:transparent;
+  padding:8px;
+  border-radius:8px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--muted);
+}
+
+.ui-icon-btn.logout{ color:var(--danger); }
+
+/* small button */
+.ui-btn.small{
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  cursor:pointer;
+}
+.ui-btn.small.ghost{
+  background:transparent;
+}
+
+/* collapsed adjustments */
+.ui-sidebar.collapsed .brand-text,
+.ui-sidebar.collapsed .label,
+.ui-sidebar.collapsed .menu-text{
+  display:none;
+}
+.ui-sidebar.collapsed .brand-mark{ margin: 0 auto; }
+
+/* --------- Topbar (existing classes used by your App.js Topbar) --------- */
+.premium-topbar{
+  height:72px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px 18px;
+  border-bottom:1px solid var(--border);
+  background:transparent;
+  width:100%;
+}
+
+.premium-topbar .title{
+  margin:0;
+  font-size:18px;
+  font-weight:700;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.premium-topbar .actions{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.theme-toggle{
+  border:1px solid var(--border);
+  padding:8px 10px;
+  border-radius:8px;
+  background:transparent;
+  cursor:pointer;
+}
+
+.logout-btn{
+  background:transparent;
+  border:1px solid var(--border);
+  padding:8px 10px;
+  border-radius:8px;
+  cursor:pointer;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  color:var(--muted);
+  font-weight:600;
+}
+
+/* Timer badge */
+.timer{
+  padding:6px 12px;
+  border-radius:999px;
+  background:linear-gradient(90deg,var(--surface),var(--surface));
+  border:1px solid var(--border);
+  color:var(--muted);
+  font-weight:700;
+}
+
+/* --------- Dashboard container & main content --------- */
+.dashboard-container{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  min-height:100vh;
+  max-width:100%;
+}
+
+/* main content area inside dashboard */
+.main-content{
+  padding:22px;
+  max-width:var(--max-width);
+  margin:0 auto;
+  width:100%;
+}
+
+/* cards */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px;
+  box-shadow:var(--shadow);
+}
+
+/* summary cards grid */
+.summary-cards{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap:16px;
+  margin-top:18px;
+  margin-bottom:18px;
+}
+
+/* responsive */
+@media (max-width:1000px){
+  .ui-sidebar{ display:none; }
+  .dashboard-wrapper{ flex-direction:column; }
+  .summary-cards{ grid-template-columns: 1fr; }
+  .main-content{ padding:14px; }
+}
+
+/* panels, list, search etc */
+.controls-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+}
+
+.search-input{
+  width:320px;
+  padding:10px 12px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--surface);
+}
+
+/* small helpers */
+.btn{ padding:10px 14px; border-radius:8px; border:1px solid var(--border); background:var(--surface); cursor:pointer; }
+.btn.ghost{ background:transparent; }
+.btn.small{ padding:6px 8px; font-size:13px; }
+
+/* list styles */
+.list.small-list{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.list-item{ display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--surface); }
+.item-name{ font-weight:700; }
+.item-sub{ color:var(--muted); font-size:13px; margin-top:4px; }
+
+/* donut legend */
+.legend-item{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
+.legend-item .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+.dot.paid{ background:var(--success); }
+.dot.unpaid{ background:var(--danger); }
+
+/* footer */
+.footer{ text-align:center; padding:24px 0; color:var(--muted); font-size:13px; margin-top:32px; }
+
+/* small animation to polish */
+@keyframes floatIn {
+  from{ transform: translateY(6px); opacity:0}
+  to{ transform: translateY(0); opacity:1}
+}
+.card{ animation: floatIn 260ms ease both; }
+
+/* --------- End of ui.css --------- */

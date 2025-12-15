@@ -6,7 +6,6 @@ import {
   Route,
   Navigate,
   useNavigate,
-  useLocation,
 } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -22,39 +21,45 @@ import SettingsPage from "./pages/SettingsPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LandingPage from "./pages/LandingPage";
+import AdminDashboard from "./pages/AdminDashboard";
 
 import Sidebar from "./components/Sidebar";
+import AdminRoute from "./components/AdminRoute";
 
 import "./App.css";
 import { ToastContainer, Slide } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-import useAutoLogout from "./useAutoLogout";
 import { initActivityListeners, resetActivityListeners } from "./sessionActivity";
 import { getSettings } from "./api";
 
 const DEFAULT_ACTIVE_MINUTES = 10;
 const DEFAULT_INACTIVE_MINUTES = 10;
 
-/* ---------------------------------------------------
-   PROTECTED ROUTE WRAPPER
---------------------------------------------------- */
+/* =====================================================
+   PROTECTED ROUTE
+   ===================================================== */
 function ProtectedRoute({ children }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, initializing } = useAuth();
+
+  // ⛔ Prevent flicker
+  if (initializing) return null;
+
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
-/* ---------------------------------------------------
-   TOPBAR (UNCHANGED LOGIC)
---------------------------------------------------- */
+/* =====================================================
+   TOPBAR
+   ===================================================== */
 function Topbar({ theme, toggleTheme }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-
   const [remainingTime, setRemainingTime] = useState("Loading...");
+
   const activeMs =
     Number(localStorage.getItem("session_active_ms")) ||
     DEFAULT_ACTIVE_MINUTES * 60000;
+
   const inactiveMs =
     Number(localStorage.getItem("session_inactive_ms")) ||
     DEFAULT_INACTIVE_MINUTES * 60000;
@@ -62,12 +67,13 @@ function Topbar({ theme, toggleTheme }) {
   useEffect(() => {
     if (!user) return;
 
-    let loginTime = Number(localStorage.getItem("loginTime")) || Date.now();
-    localStorage.setItem("loginTime", loginTime);
-
     const compute = () => {
-      const lastActive =
-        Number(localStorage.getItem("lastActive")) || loginTime;
+      let loginTime = Number(localStorage.getItem("loginTime"));
+      let lastActive = Number(localStorage.getItem("lastActive"));
+
+      // 🔐 Set ONLY after login
+      if (!loginTime || isNaN(loginTime)) return;
+      if (!lastActive || isNaN(lastActive)) lastActive = loginTime;
 
       const expireAt = Math.min(
         loginTime + activeMs,
@@ -75,38 +81,37 @@ function Topbar({ theme, toggleTheme }) {
       );
 
       const diff = expireAt - Date.now();
+
       if (diff <= 0) {
         logout();
         resetActivityListeners();
-        navigate("/login");
+        navigate("/login", { replace: true });
         return;
       }
 
       const sec = Math.floor(diff / 1000);
       const m = Math.floor(sec / 60);
       const s = sec % 60;
-      setRemainingTime(`${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+
+      setRemainingTime(
+        `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      );
     };
 
     compute();
     const id = setInterval(compute, 1000);
     return () => clearInterval(id);
-
-  }, [user, logout, navigate]);
+  }, [user, logout, navigate, activeMs, inactiveMs]);
 
   return (
     <div className="premium-topbar">
       <h3>📊 Dashboard</h3>
-
       <div className="actions">
         <button onClick={toggleTheme}>
           {theme === "light" ? "🌙" : "☀️"}
         </button>
-
         <span>{user?.name}</span>
-
         <span className="timer">{remainingTime}</span>
-
         <button
           className="logout-btn"
           onClick={() => {
@@ -122,9 +127,9 @@ function Topbar({ theme, toggleTheme }) {
   );
 }
 
-/* ---------------------------------------------------
+/* =====================================================
    DASHBOARD LAYOUT
---------------------------------------------------- */
+   ===================================================== */
 function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(
     localStorage.getItem("sidebarCollapsed") === "true"
@@ -160,13 +165,22 @@ function DashboardLayout() {
 
         <div className="main-content">
           <Routes>
-            <Route path="/" element={<DashboardPage />} />
+            <Route index element={<DashboardPage />} />
             <Route path="customers" element={<CustomersPage />} />
             <Route path="entries" element={<EntriesPage />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
-            {/* fallback inside dashboard */}
+            {/* ADMIN */}
+            <Route
+              path="admin"
+              element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              }
+            />
+
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -175,15 +189,18 @@ function DashboardLayout() {
   );
 }
 
-/* ---------------------------------------------------
+/* =====================================================
    SETTINGS BOOTSTRAP
---------------------------------------------------- */
+   ===================================================== */
 function SettingsBootstrap({ children }) {
   const { isAuthenticated } = useAuth();
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setLoaded(true);
+      return;
+    }
 
     initActivityListeners();
 
@@ -200,43 +217,55 @@ function SettingsBootstrap({ children }) {
           "session_inactive_ms",
           String((s.inactive_timeout_minutes || DEFAULT_INACTIVE_MINUTES) * 60000)
         );
-
-        setLoaded(true);
       } catch {
+        // ignore
+      } finally {
         setLoaded(true);
       }
     })();
   }, [isAuthenticated]);
 
   if (isAuthenticated && !loaded) {
-    return <div style={{ padding: 20 }}>Loading user settings...</div>;
+    return <div className="loading-screen">Loading settings...</div>;
   }
 
   return children;
 }
 
-/* ---------------------------------------------------
-   ROUTES
---------------------------------------------------- */
+/* =====================================================
+   APP ROUTES (NO FLICKER)
+   ===================================================== */
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
-  const location = useLocation();
+  const { isAuthenticated, initializing } = useAuth();
 
-  // Logged in? block Landing page
-  if (location.pathname === "/" && isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
-  }
+  if (initializing) return null;
 
   return (
     <Routes>
-      {/* Public */}
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/"
+        element={
+          isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />
+        }
+      />
+
+      <Route
+        path="/login"
+        element={
+          isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
+        }
+      />
+
+      <Route
+        path="/register"
+        element={
+          isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />
+        }
+      />
+
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
 
-      {/* Protected */}
       <Route
         path="/dashboard/*"
         element={
@@ -246,30 +275,43 @@ function AppRoutes() {
         }
       />
 
-      {/* fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
 
-/* ---------------------------------------------------
-   ROOT APP
---------------------------------------------------- */
+/* =====================================================
+   APP INITIALIZER
+   ===================================================== */
+function AppInitializer() {
+  const { initializing } = useAuth();
+
+  if (initializing) {
+    return <div className="loading-screen">Loading...</div>;
+  }
+
+  return (
+    <SettingsBootstrap>
+      <AppRoutes />
+      <ToastContainer
+        position="top-right"
+        autoClose={2200}
+        transition={Slide}
+        theme="colored"
+      />
+    </SettingsBootstrap>
+  );
+}
+
+/* =====================================================
+   ROOT
+   ===================================================== */
 export default function App() {
   return (
     <AuthProvider>
       <BillingModeProvider>
         <Router>
-          <SettingsBootstrap>
-            <AppRoutes />
-            <ToastContainer
-              position="top-right"
-              autoClose={2200}
-              hideProgressBar={false}
-              transition={Slide}
-              theme="colored"
-            />
-          </SettingsBootstrap>
+          <AppInitializer />
         </Router>
       </BillingModeProvider>
     </AuthProvider>
