@@ -9,9 +9,7 @@ import {
 
 const router = express.Router();
 
-/**
- * Admin-only middleware
- */
+/* 🔒 Admin-only middleware */
 const adminOnly = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ message: "Admin access required" });
@@ -19,13 +17,17 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-// ✅ GET pending users
+/* ================================
+   ADMIN ROUTES
+================================ */
+
+// ✅ Get all pending users
 router.get("/pending-users", auth, adminOnly, getPendingUsers);
 
-// ✅ APPROVE user
-router.post("/approve/:id", auth, adminOnly, approveUser);
+// ✅ Approve user (MATCH FRONTEND)
+router.post("/approve-user/:id", auth, adminOnly, approveUser);
 
-// ✅ REJECT user
-router.post("/reject/:id", auth, adminOnly, rejectUser);
+// ✅ Reject user (MATCH FRONTEND)
+router.post("/reject-user/:id", auth, adminOnly, rejectUser);
 
 export default router;

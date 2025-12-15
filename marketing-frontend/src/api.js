@@ -268,12 +268,33 @@ const authHeader = () => ({
   },
 });
 
-// 🔐 ADMIN APIs
-export const getPendingUsers = () =>
-  axios.get(`${BASE}/admin/pending-users`, authHeader());
+/* ============================================================
+   🔐 ADMIN APIs (FIXED & CONSISTENT)
+   ============================================================ */
 
-export const approveUser = (userId) =>
-  axios.post(`${BASE}/admin/approve-user/${userId}`, {}, authHeader());
+// Get all pending users
+export const getPendingUsers = async () => {
+  try {
+    return await API.get("/admin/pending-users");
+  } catch (e) {
+    handleError(e);
+  }
+};
 
-export const rejectUser = (userId) =>
-  axios.post(`${BASE}/admin/reject-user/${userId}`, {}, authHeader());
+// Approve user
+export const approveUser = async (userId) => {
+  try {
+    return await API.post(`/admin/approve/${userId}`);
+  } catch (e) {
+    handleError(e);
+  }
+};
+
+// Reject user
+export const rejectUser = async (userId) => {
+  try {
+    return await API.post(`/admin/reject/${userId}`);
+  } catch (e) {
+    handleError(e);
+  }
+};

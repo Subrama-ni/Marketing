@@ -10,6 +10,7 @@ import entryRoutes from "./routes/entryRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -23,18 +24,15 @@ app.use((req, res, next) => {
 });
 
 /* ------------------------------------
-   🔥 FIX 1 — BASIC CORS USING PACKAGE
+   🔥 CORS
 ------------------------------------ */
 app.use(
   cors({
     origin: (origin, callback) => {
       const allowed = [
-        "http://localhost:3001",
         "http://localhost:3000",
-        "http://localhost:4000",
-        "http://localhost:4001",
-        "https://marketing-platform-9ua2.onrender.com", // frontend
-        "https://marketing-db-ihb3.onrender.com"        // backend
+        "http://localhost:3001",
+        "https://marketing-platform-9ua2.onrender.com",
       ];
       if (!origin || allowed.includes(origin)) {
         callback(null, true);
@@ -48,9 +46,6 @@ app.use(
   })
 );
 
-/* ------------------------------------
-   🔥 FIX 2 — Manual CORS for OPTIONS
------------------------------------- */
 app.options("*", (req, res) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Credentials", "true");
@@ -59,7 +54,7 @@ app.options("*", (req, res) => {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, x-last-active"
   );
-  return res.sendStatus(200);
+  res.sendStatus(200);
 });
 
 /* ------------------------------------
@@ -68,7 +63,7 @@ app.options("*", (req, res) => {
 app.use(express.json());
 
 /* ------------------------------------
-   DATABASE INIT
+   DATABASE INIT (SAFE MIGRATION)
 ------------------------------------ */
 async function initDB() {
   try {
@@ -80,6 +75,10 @@ async function initDB() {
         name VARCHAR(100),
         email VARCHAR(150) UNIQUE,
         password TEXT,
+        phone TEXT,
+        role VARCHAR DEFAULT 'user',
+        is_email_verified BOOLEAN DEFAULT FALSE,
+        is_approved BOOLEAN DEFAULT FALSE,
         reset_token TEXT,
         reset_token_expiry TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -154,9 +153,10 @@ async function initDB() {
 initDB();
 
 /* ------------------------------------
-   ROUTES
+   ROUTES (ORDER MATTERS)
 ------------------------------------ */
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);   // ✅ FIXED
 app.use("/api/customers", customerRoutes);
 app.use("/api/entries", entryRoutes);
 app.use("/api/payments", paymentRoutes);
@@ -164,20 +164,18 @@ app.use("/api/settings", settingsRoutes);
 
 app.get("/healthz", (req, res) => res.status(200).send("OK"));
 
-/* Serve bills folder */
+/* Serve bills */
 const __dirname = path.resolve();
 app.use("/bills", express.static(path.join(__dirname, "bills")));
 
 /* ------------------------------------
-   🔥 FIX 3 — GLOBAL ERROR HANDLER WITH CORS
+   GLOBAL ERROR HANDLER
 ------------------------------------ */
 app.use((err, req, res, next) => {
   console.error("🔥 SERVER ERROR:", err);
-
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Credentials", "true");
-
-  return res.status(500).json({ message: "Internal Server Error" });
+  res.status(500).json({ message: "Internal Server Error" });
 });
 
 /* ------------------------------------
@@ -187,8 +185,3 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 Backend running on port ${PORT}`)
 );
-
-export default pool;
-import adminRoutes from "./routes/adminRoutes.js";
-
-app.use("/api/admin", adminRoutes);
