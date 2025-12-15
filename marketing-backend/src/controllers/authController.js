@@ -1,4 +1,3 @@
-// src/controllers/authController.js
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
@@ -9,7 +8,18 @@ import { sendAdminApprovalMail } from "../utils/sendAdminApprovalMail.js";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 /* ======================================================
-   REGISTER
+   MAIL TRANSPORTER
+====================================================== */
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+/* ======================================================
+   REGISTER (STEP 1)
 ====================================================== */
 export const registerUser = async (req, res) => {
   try {
@@ -31,22 +41,35 @@ export const registerUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const emailVerifyToken = crypto.randomBytes(32).toString("hex");
 
     const result = await pool.query(
       `
       INSERT INTO users
-        (name, email, password, phone, is_email_verified, is_approved, role)
+        (name, email, password, phone, is_email_verified, is_approved, role, email_verify_token)
       VALUES
-        ($1, $2, $3, $4, FALSE, FALSE, 'user')
+        ($1, $2, $3, $4, FALSE, FALSE, 'user', $5)
       RETURNING id
       `,
-      [name.trim(), normalizedEmail, hashedPassword, phone || null]
+      [name.trim(), normalizedEmail, hashedPassword, phone || null, emailVerifyToken]
     );
 
-    const userId = result.rows[0].id;
+    const verifyLink = `${process.env.FRONTEND_URL}/verify-email/${emailVerifyToken}`;
+
+    await transporter.sendMail({
+      to: normalizedEmail,
+      subject: "Verify your email address",
+      html: `
+        <h2>Email Verification</h2>
+        <p>Hello <b>${name}</b>,</p>
+        <p>Please verify your email:</p>
+        <a href="${verifyLink}">${verifyLink}</a>
+        <p>Admin approval is required after verification.</p>
+      `,
+    });
 
     await sendAdminApprovalMail({
-      id: userId,
+      id: result.rows[0].id,
       name,
       email: normalizedEmail,
       phone,
@@ -54,7 +77,7 @@ export const registerUser = async (req, res) => {
 
     res.status(201).json({
       message:
-        "Registration successful. Your account is pending admin approval.",
+        "Registration successful. Please verify your email and wait for admin approval.",
     });
   } catch (err) {
     console.error("❌ Register error:", err);
@@ -63,7 +86,42 @@ export const registerUser = async (req, res) => {
 };
 
 /* ======================================================
-   LOGIN
+   EMAIL VERIFICATION (STEP 2)
+====================================================== */
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const userRes = await pool.query(
+      "SELECT id FROM users WHERE email_verify_token=$1",
+      [token]
+    );
+
+    if (userRes.rowCount === 0) {
+      return res.status(400).json({ message: "Invalid verification link" });
+    }
+
+    await pool.query(
+      `
+      UPDATE users
+      SET is_email_verified=TRUE,
+          email_verify_token=NULL
+      WHERE email_verify_token=$1
+      `,
+      [token]
+    );
+
+    res.json({
+      message: "Email verified successfully. Please wait for admin approval.",
+    });
+  } catch (err) {
+    console.error("❌ Email verify error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/* ======================================================
+   LOGIN (STEP 4)
 ====================================================== */
 export const loginUser = async (req, res) => {
   try {
@@ -73,11 +131,9 @@ export const loginUser = async (req, res) => {
       return res.status(400).json({ message: "Email & password required" });
     }
 
-    const normalizedEmail = email.toLowerCase();
-
     const userRes = await pool.query(
       "SELECT * FROM users WHERE email=$1",
-      [normalizedEmail]
+      [email.toLowerCase()]
     );
 
     if (userRes.rowCount === 0) {
@@ -85,8 +141,8 @@ export const loginUser = async (req, res) => {
     }
 
     const user = userRes.rows[0];
-
     const isMatch = await bcrypt.compare(password, user.password);
+
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
@@ -107,7 +163,7 @@ export const loginUser = async (req, res) => {
       {
         id: user.id,
         email: user.email,
-        role: user.role, // 🔑 REQUIRED
+        role: user.role,
       },
       JWT_SECRET,
       { expiresIn: "7d" }
@@ -136,54 +192,38 @@ export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
-    if (!email?.trim()) {
-      return res.status(400).json({ message: "Email is required" });
-    }
-
     const userRes = await pool.query(
       "SELECT id, name FROM users WHERE email=$1",
       [email.toLowerCase()]
     );
 
     if (userRes.rowCount === 0) {
-      return res.status(400).json({ message: "No user found with this email" });
+      return res.status(400).json({ message: "User not found" });
     }
-
-    const user = userRes.rows[0];
 
     const resetToken = crypto.randomBytes(32).toString("hex");
     const expiry = new Date(Date.now() + 60 * 60 * 1000);
 
     await pool.query(
-      `UPDATE users SET reset_token=$1, reset_token_expiry=$2 WHERE id=$3`,
-      [resetToken, expiry, user.id]
+      "UPDATE users SET reset_token=$1, reset_token_expiry=$2 WHERE id=$3",
+      [resetToken, expiry, userRes.rows[0].id]
     );
 
     const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.MAIL_USER,
-        pass: process.env.MAIL_PASS,
-      },
-    });
-
     await transporter.sendMail({
       to: email,
-      subject: "Password Reset Request",
+      subject: "Password Reset",
       html: `
-        <h2>Password Reset</h2>
-        <p>Hello ${user.name},</p>
-        <p>Click the link below to reset your password:</p>
+        <p>Hello ${userRes.rows[0].name},</p>
+        <p>Reset your password:</p>
         <a href="${resetLink}">${resetLink}</a>
-        <p>This link will expire in 1 hour.</p>
       `,
     });
 
-    res.json({ message: "Password reset link sent to email" });
+    res.json({ message: "Password reset link sent" });
   } catch (err) {
-    console.error("❌ Forgot Password error:", err);
+    console.error("❌ Forgot password error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -194,10 +234,6 @@ export const forgotPassword = async (req, res) => {
 export const resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-
-    if (!token?.trim() || !newPassword?.trim()) {
-      return res.status(400).json({ message: "Missing token or password" });
-    }
 
     const userRes = await pool.query(
       "SELECT id FROM users WHERE reset_token=$1 AND reset_token_expiry > NOW()",
@@ -219,9 +255,76 @@ export const resetPassword = async (req, res) => {
       [hashed, userRes.rows[0].id]
     );
 
-    res.json({ message: "Password reset successful. Please login." });
+    res.json({ message: "Password reset successful" });
   } catch (err) {
-    console.error("❌ Reset Password error:", err);
+    console.error("❌ Reset password error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+/* ======================================================
+   RESEND EMAIL VERIFICATION
+====================================================== */
+export const resendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email?.trim()) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    const userRes = await pool.query(
+      `
+      SELECT id, name, email, is_email_verified
+      FROM users
+      WHERE email = $1
+      `,
+      [normalizedEmail]
+    );
+
+    if (userRes.rowCount === 0) {
+      return res.status(400).json({ message: "User not found" });
+    }
+
+    const user = userRes.rows[0];
+
+    if (user.is_email_verified) {
+      return res.status(400).json({
+        message: "Email is already verified",
+      });
+    }
+
+    // 🔐 Generate new verification token
+    const newToken = crypto.randomBytes(32).toString("hex");
+
+    await pool.query(
+      `
+      UPDATE users
+      SET email_verify_token = $1
+      WHERE id = $2
+      `,
+      [newToken, user.id]
+    );
+
+    const verifyLink = `${process.env.FRONTEND_URL}/verify-email/${newToken}`;
+
+    await transporter.sendMail({
+      to: user.email,
+      subject: "Verify your email address",
+      html: `
+        <h2>Email Verification</h2>
+        <p>Hello <b>${user.name}</b>,</p>
+        <p>Please verify your email by clicking the link below:</p>
+        <a href="${verifyLink}">${verifyLink}</a>
+        <br/><br/>
+        <p>If you did not request this, you can ignore this email.</p>
+      `,
+    });
+
+    res.json({ message: "Verification email resent successfully" });
+  } catch (err) {
+    console.error("❌ Resend verification error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

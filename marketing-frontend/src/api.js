@@ -298,3 +298,10 @@ export const rejectUser = async (userId) => {
     handleError(e);
   }
 };
+export const resendVerification = async (email) => {
+  try {
+    return await API.post("/auth/resend-verification", { email });
+  } catch (e) {
+    handleError(e);
+  }
+};

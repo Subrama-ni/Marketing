@@ -22,6 +22,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LandingPage from "./pages/LandingPage";
 import AdminDashboard from "./pages/AdminDashboard";
+import VerifyEmailPage from "./pages/VerifyEmailPage"; // ✅ NEW
 
 import Sidebar from "./components/Sidebar";
 import AdminRoute from "./components/AdminRoute";
@@ -36,21 +37,18 @@ import { getSettings } from "./api";
 const DEFAULT_ACTIVE_MINUTES = 10;
 const DEFAULT_INACTIVE_MINUTES = 10;
 
-/* =====================================================
+/* ============================
    PROTECTED ROUTE
-   ===================================================== */
+============================ */
 function ProtectedRoute({ children }) {
   const { isAuthenticated, initializing } = useAuth();
-
-  // ⛔ Prevent flicker
   if (initializing) return null;
-
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
-/* =====================================================
+/* ============================
    TOPBAR
-   ===================================================== */
+============================ */
 function Topbar({ theme, toggleTheme }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -68,12 +66,9 @@ function Topbar({ theme, toggleTheme }) {
     if (!user) return;
 
     const compute = () => {
-      let loginTime = Number(localStorage.getItem("loginTime"));
-      let lastActive = Number(localStorage.getItem("lastActive"));
-
-      // 🔐 Set ONLY after login
-      if (!loginTime || isNaN(loginTime)) return;
-      if (!lastActive || isNaN(lastActive)) lastActive = loginTime;
+      const loginTime = Number(localStorage.getItem("loginTime"));
+      const lastActive = Number(localStorage.getItem("lastActive")) || loginTime;
+      if (!loginTime) return;
 
       const expireAt = Math.min(
         loginTime + activeMs,
@@ -81,7 +76,6 @@ function Topbar({ theme, toggleTheme }) {
       );
 
       const diff = expireAt - Date.now();
-
       if (diff <= 0) {
         logout();
         resetActivityListeners();
@@ -90,11 +84,10 @@ function Topbar({ theme, toggleTheme }) {
       }
 
       const sec = Math.floor(diff / 1000);
-      const m = Math.floor(sec / 60);
-      const s = sec % 60;
-
       setRemainingTime(
-        `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+        `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(
+          sec % 60
+        ).padStart(2, "0")}`
       );
     };
 
@@ -127,9 +120,9 @@ function Topbar({ theme, toggleTheme }) {
   );
 }
 
-/* =====================================================
+/* ============================
    DASHBOARD LAYOUT
-   ===================================================== */
+============================ */
 function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(
     localStorage.getItem("sidebarCollapsed") === "true"
@@ -170,8 +163,6 @@ function DashboardLayout() {
             <Route path="entries" element={<EntriesPage />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="settings" element={<SettingsPage />} />
-
-            {/* ADMIN */}
             <Route
               path="admin"
               element={
@@ -180,7 +171,6 @@ function DashboardLayout() {
                 </AdminRoute>
               }
             />
-
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -189,26 +179,21 @@ function DashboardLayout() {
   );
 }
 
-/* =====================================================
+/* ============================
    SETTINGS BOOTSTRAP
-   ===================================================== */
+============================ */
 function SettingsBootstrap({ children }) {
   const { isAuthenticated } = useAuth();
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setLoaded(true);
-      return;
-    }
-
+    if (!isAuthenticated) return setLoaded(true);
     initActivityListeners();
 
     (async () => {
       try {
         const res = await getSettings();
         const s = res.data || {};
-
         localStorage.setItem(
           "session_active_ms",
           String((s.active_timeout_minutes || DEFAULT_ACTIVE_MINUTES) * 60000)
@@ -217,8 +202,6 @@ function SettingsBootstrap({ children }) {
           "session_inactive_ms",
           String((s.inactive_timeout_minutes || DEFAULT_INACTIVE_MINUTES) * 60000)
         );
-      } catch {
-        // ignore
       } finally {
         setLoaded(true);
       }
@@ -232,12 +215,11 @@ function SettingsBootstrap({ children }) {
   return children;
 }
 
-/* =====================================================
-   APP ROUTES (NO FLICKER)
-   ===================================================== */
+/* ============================
+   APP ROUTES
+============================ */
 function AppRoutes() {
   const { isAuthenticated, initializing } = useAuth();
-
   if (initializing) return null;
 
   return (
@@ -248,20 +230,21 @@ function AppRoutes() {
           isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />
         }
       />
-
       <Route
         path="/login"
         element={
           isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
         }
       />
-
       <Route
         path="/register"
         element={
           isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />
         }
       />
+
+      {/* ✅ EMAIL VERIFICATION */}
+      <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
 
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
@@ -280,15 +263,12 @@ function AppRoutes() {
   );
 }
 
-/* =====================================================
+/* ============================
    APP INITIALIZER
-   ===================================================== */
+============================ */
 function AppInitializer() {
   const { initializing } = useAuth();
-
-  if (initializing) {
-    return <div className="loading-screen">Loading...</div>;
-  }
+  if (initializing) return <div className="loading-screen">Loading...</div>;
 
   return (
     <SettingsBootstrap>
@@ -303,9 +283,9 @@ function AppInitializer() {
   );
 }
 
-/* =====================================================
+/* ============================
    ROOT
-   ===================================================== */
+============================ */
 export default function App() {
   return (
     <AuthProvider>

@@ -2,7 +2,11 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { loginUser, registerUser } from "../api";
+import {
+  loginUser,
+  registerUser,
+  resendVerification, // ✅ ADD
+} from "../api";
 import { toast } from "react-toastify";
 import "../styles/Auth.css";
 
@@ -17,11 +21,13 @@ export default function LoginPage() {
     password: "",
     phone: "",
   });
+
   const [loading, setLoading] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+  const [resending, setResending] = useState(false);
 
   /* ---------------------------------------------------
      🧹 CLEAN SESSION STATE ON LOGIN PAGE LOAD
-     Prevents old lastActive/loginTime causing redirects
   --------------------------------------------------- */
   useEffect(() => {
     localStorage.removeItem("loginTime");
@@ -34,13 +40,14 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setShowResend(false);
 
     try {
       if (isRegister) {
         await registerUser(form);
 
         toast.info(
-          "Registration submitted. Please wait for admin approval.",
+          "Registration successful. Please verify your email and wait for admin approval.",
           { autoClose: 4000 }
         );
 
@@ -59,12 +66,35 @@ export default function LoginPage() {
         navigate("/dashboard", { replace: true });
       }
     } catch (err) {
-      toast.error(
+      const msg =
         err.response?.data?.message ||
-          "Login failed. Please try again."
-      );
+        "Login failed. Please try again.";
+
+      toast.error(msg);
+
+      // 🔁 SHOW RESEND OPTION
+      if (msg.toLowerCase().includes("verify your email")) {
+        setShowResend(true);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!form.email) {
+      toast.error("Please enter your email first");
+      return;
+    }
+
+    setResending(true);
+    try {
+      await resendVerification(form.email);
+      toast.success("Verification email resent successfully");
+    } catch {
+      // handled globally
+    } finally {
+      setResending(false);
     }
   };
 
@@ -121,6 +151,23 @@ export default function LoginPage() {
               : "Login"}
           </button>
         </form>
+
+        {/* 🔁 RESEND VERIFICATION */}
+        {!isRegister && showResend && (
+          <p className="toggle-text">
+            Didn’t get the verification email?{" "}
+            <span
+              onClick={handleResend}
+              style={{
+                cursor: resending ? "not-allowed" : "pointer",
+                fontWeight: "bold",
+                opacity: resending ? 0.6 : 1,
+              }}
+            >
+              {resending ? "Sending..." : "Resend verification"}
+            </span>
+          </p>
+        )}
 
         <p className="toggle-text">
           {isRegister ? "Already registered?" : "New user?"}{" "}
