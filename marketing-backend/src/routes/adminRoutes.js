@@ -1,4 +1,3 @@
-// src/routes/adminRoutes.js
 import express from "express";
 import { auth } from "../middleware/auth.js";
 import {
@@ -9,25 +8,30 @@ import {
 
 const router = express.Router();
 
-/* 🔒 Admin-only middleware */
-const adminOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({ message: "Admin access required" });
-  }
-  next();
-};
-
-/* ================================
+/* ===============================
    ADMIN ROUTES
 ================================ */
 
-// ✅ Get all pending users
-router.get("/pending-users", auth, adminOnly, getPendingUsers);
+// only admin can access
+router.get("/pending-users", auth, (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}, getPendingUsers);
 
-// ✅ Approve user (MATCH FRONTEND)
-router.post("/approve-user/:id", auth, adminOnly, approveUser);
+router.post("/approve/:id", auth, (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}, approveUser);
 
-// ✅ Reject user (MATCH FRONTEND)
-router.post("/reject-user/:id", auth, adminOnly, rejectUser);
+router.post("/reject/:id", auth, (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}, rejectUser);
 
 export default router;
