@@ -329,3 +329,10 @@ export const resendVerificationEmail = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ Mail config error:", error);
+  } else {
+    console.log("✅ Mail server ready");
+  }
+});
