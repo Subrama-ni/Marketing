@@ -8,7 +8,7 @@ import { sendAdminApprovalMail } from "../utils/sendAdminApprovalMail.js";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 /* ======================================================
-   MAIL TRANSPORTER
+   📧 MAIL TRANSPORTER
 ====================================================== */
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -29,7 +29,7 @@ export const registerUser = async (req, res) => {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    const normalizedEmail = email.toLowerCase();
+    const normalizedEmail = email.toLowerCase().trim();
 
     const existingUser = await pool.query(
       "SELECT id FROM users WHERE email=$1",
@@ -51,11 +51,18 @@ export const registerUser = async (req, res) => {
         ($1, $2, $3, $4, FALSE, FALSE, 'user', $5)
       RETURNING id
       `,
-      [name.trim(), normalizedEmail, hashedPassword, phone || null, emailVerifyToken]
+      [
+        name.trim(),
+        normalizedEmail,
+        hashedPassword,
+        phone || null,
+        emailVerifyToken,
+      ]
     );
 
     const verifyLink = `${process.env.FRONTEND_URL}/verify-email/${emailVerifyToken}`;
 
+    // 📩 Send verification mail
     await transporter.sendMail({
       to: normalizedEmail,
       subject: "Verify your email address",
@@ -68,6 +75,7 @@ export const registerUser = async (req, res) => {
       `,
     });
 
+    // 📩 Notify admin
     await sendAdminApprovalMail({
       id: result.rows[0].id,
       name,
@@ -104,9 +112,9 @@ export const verifyEmail = async (req, res) => {
     await pool.query(
       `
       UPDATE users
-      SET is_email_verified=TRUE,
-          email_verify_token=NULL
-      WHERE email_verify_token=$1
+      SET is_email_verified = TRUE,
+          email_verify_token = NULL
+      WHERE email_verify_token = $1
       `,
       [token]
     );
@@ -133,7 +141,7 @@ export const loginUser = async (req, res) => {
 
     const userRes = await pool.query(
       "SELECT * FROM users WHERE email=$1",
-      [email.toLowerCase()]
+      [email.toLowerCase().trim()]
     );
 
     if (userRes.rowCount === 0) {
@@ -192,9 +200,11 @@ export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
+    const normalizedEmail = email?.toLowerCase().trim();
+
     const userRes = await pool.query(
       "SELECT id, name FROM users WHERE email=$1",
-      [email.toLowerCase()]
+      [normalizedEmail]
     );
 
     if (userRes.rowCount === 0) {
@@ -212,7 +222,7 @@ export const forgotPassword = async (req, res) => {
     const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
     await transporter.sendMail({
-      to: email,
+      to: normalizedEmail,
       subject: "Password Reset",
       html: `
         <p>Hello ${userRes.rows[0].name},</p>
@@ -261,24 +271,24 @@ export const resetPassword = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 /* ======================================================
-   RESEND EMAIL VERIFICATION
+   🔁 RESEND EMAIL VERIFICATION
 ====================================================== */
 export const resendVerificationEmail = async (req, res) => {
   try {
     const { email } = req.body;
+    const normalizedEmail = email?.toLowerCase().trim();
 
-    if (!email?.trim()) {
+    if (!normalizedEmail) {
       return res.status(400).json({ message: "Email is required" });
     }
-
-    const normalizedEmail = email.toLowerCase();
 
     const userRes = await pool.query(
       `
       SELECT id, name, email, is_email_verified
       FROM users
-      WHERE email = $1
+      WHERE email=$1
       `,
       [normalizedEmail]
     );
@@ -290,20 +300,13 @@ export const resendVerificationEmail = async (req, res) => {
     const user = userRes.rows[0];
 
     if (user.is_email_verified) {
-      return res.status(400).json({
-        message: "Email is already verified",
-      });
+      return res.status(400).json({ message: "Email already verified" });
     }
 
-    // 🔐 Generate new verification token
     const newToken = crypto.randomBytes(32).toString("hex");
 
     await pool.query(
-      `
-      UPDATE users
-      SET email_verify_token = $1
-      WHERE id = $2
-      `,
+      "UPDATE users SET email_verify_token=$1 WHERE id=$2",
       [newToken, user.id]
     );
 
@@ -315,10 +318,8 @@ export const resendVerificationEmail = async (req, res) => {
       html: `
         <h2>Email Verification</h2>
         <p>Hello <b>${user.name}</b>,</p>
-        <p>Please verify your email by clicking the link below:</p>
+        <p>Click the link below to verify your email:</p>
         <a href="${verifyLink}">${verifyLink}</a>
-        <br/><br/>
-        <p>If you did not request this, you can ignore this email.</p>
       `,
     });
 

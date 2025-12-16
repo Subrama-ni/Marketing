@@ -4,14 +4,11 @@ import dayjs from "dayjs";
 import { toast } from "react-toastify";
 
 /* ============================================================
-   🌍 BASE URL — FINAL RENDER URL FOR BACKEND
+   🌍 BASE URL — RENDER BACKEND
    ============================================================ */
 const BASE = "https://marketing-db-ihb3.onrender.com/api";
- // your Render backend URL
 
 console.log("🌍 API Base URL:", BASE);
-console.log("🔥 ENV API URL =", process.env.REACT_APP_API_URL);
-console.log("🔥 FINAL BASE URL =", BASE);
 
 const API = axios.create({
   baseURL: BASE,
@@ -33,27 +30,29 @@ API.interceptors.request.use((config) => {
 });
 
 /* ============================================================
-   🔐 RESPONSE INTERCEPTOR – SESSION & TOKEN HANDLING
+   🔐 RESPONSE INTERCEPTOR
    ============================================================ */
 API.interceptors.response.use(
   (res) => res,
   (err) => {
-    console.error("❌ API Interceptor Error:", err);
+    console.error("❌ API Error:", err);
 
     const status = err.response?.status;
 
-    // 🔒 Session Expired
+    // 🔒 Session expired
     if (status === 440 || status === 441) {
       toast.error(
         err.response?.data?.message || "Session expired. Please login again."
       );
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      localStorage.removeItem("loginTime");
+      localStorage.removeItem("lastActive");
       setTimeout(() => (window.location.href = "/login"), 800);
       return;
     }
 
-    // ❌ Unauthorized Token
+    // ❌ Unauthorized
     if (status === 401) {
       console.warn("401 Unauthorized → Clearing token");
       localStorage.removeItem("token");
@@ -69,7 +68,6 @@ API.interceptors.response.use(
    ============================================================ */
 const handleError = (error) => {
   console.error("❌ API Error:", error.response?.data || error.message);
-
   toast.error(error.response?.data?.message || "Something went wrong");
   throw error;
 };
@@ -109,7 +107,7 @@ export const deleteCustomer = async (id) => {
   }
 };
 
-export const getCustomersByMode = async (billingType) =>
+export const getCustomersByMode = (billingType) =>
   getCustomers({ billingType });
 
 /* ============================================================
@@ -119,23 +117,27 @@ const normalizeNumber = (v) => Number(v || 0);
 
 export const createEntry = async (data) => {
   try {
-    const payload = {
+    return await API.post("/entries", {
       ...data,
       kgs: normalizeNumber(data.kgs),
       rate: normalizeNumber(data.rate),
       commission: normalizeNumber(data.commission),
       bags: normalizeNumber(data.bags),
       luggage_amount: normalizeNumber(data.luggage_amount),
-    };
-    return await API.post("/entries", payload);
+    });
   } catch (e) {
     handleError(e);
   }
 };
 
-export const getEntriesByCustomer = async (customerId, billingType = "farmer") => {
+export const getEntriesByCustomer = async (
+  customerId,
+  billingType = "farmer"
+) => {
   try {
-    return await API.get(`/entries/${customerId}`, { params: { billingType } });
+    return await API.get(`/entries/${customerId}`, {
+      params: { billingType },
+    });
   } catch (e) {
     handleError(e);
   }
@@ -143,15 +145,14 @@ export const getEntriesByCustomer = async (customerId, billingType = "farmer") =
 
 export const updateEntry = async (id, data) => {
   try {
-    const payload = {
+    return await API.put(`/entries/${id}`, {
       ...data,
       kgs: normalizeNumber(data.kgs),
       rate: normalizeNumber(data.rate),
       commission: normalizeNumber(data.commission),
       bags: normalizeNumber(data.bags),
       luggage_amount: normalizeNumber(data.luggage_amount),
-    };
-    return await API.put(`/entries/${id}`, payload);
+    });
   } catch (e) {
     handleError(e);
   }
@@ -244,6 +245,14 @@ export const resetPasswordRequest = async (token, newPassword) => {
   }
 };
 
+export const resendVerification = async (email) => {
+  try {
+    return await API.post("/auth/resend-verification", { email });
+  } catch (e) {
+    handleError(e);
+  }
+};
+
 /* ============================================================
    ⚙ SETTINGS
    ============================================================ */
@@ -262,17 +271,10 @@ export const saveSettings = async (data) => {
     handleError(e);
   }
 };
-const authHeader = () => ({
-  headers: {
-    Authorization: `Bearer ${localStorage.getItem("token")}`,
-  },
-});
 
 /* ============================================================
-   🔐 ADMIN APIs (FIXED & CONSISTENT)
+   👑 ADMIN
    ============================================================ */
-
-// Get all pending users
 export const getPendingUsers = async () => {
   try {
     return await API.get("/admin/pending-users");
@@ -281,7 +283,6 @@ export const getPendingUsers = async () => {
   }
 };
 
-// Approve user
 export const approveUser = async (userId) => {
   try {
     return await API.post(`/admin/approve/${userId}`);
@@ -290,17 +291,9 @@ export const approveUser = async (userId) => {
   }
 };
 
-// Reject user
 export const rejectUser = async (userId) => {
   try {
     return await API.post(`/admin/reject/${userId}`);
-  } catch (e) {
-    handleError(e);
-  }
-};
-export const resendVerification = async (email) => {
-  try {
-    return await API.post("/auth/resend-verification", { email });
   } catch (e) {
     handleError(e);
   }

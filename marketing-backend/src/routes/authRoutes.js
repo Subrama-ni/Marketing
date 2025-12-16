@@ -1,34 +1,47 @@
 import express from "express";
 import {
   registerUser,
+  verifyEmail,
+  resendVerificationEmail,
   loginUser,
   forgotPassword,
-  resendVerificationEmail,
   resetPassword,
-  verifyEmail,
 } from "../controllers/authController.js";
 
 const router = express.Router();
 
-/* ===============================
+/* ======================================================
    AUTH ROUTES
-================================ */
+====================================================== */
 
-// Register (Step 1)
+/* -------------------------------
+   STEP 1: Register user
+-------------------------------- */
 router.post("/register", registerUser);
 
-// Verify email (Step 2)
+/* -------------------------------
+   STEP 2: Verify email
+-------------------------------- */
 router.get("/verify-email/:token", verifyEmail);
+
+/* -------------------------------
+   STEP 2.1: Resend verification email
+-------------------------------- */
 router.post("/resend-verification", resendVerificationEmail);
 
-
-// Login (Step 4)
+/* -------------------------------
+   STEP 4: Login
+-------------------------------- */
 router.post("/login", loginUser);
 
-// Forgot password
+/* -------------------------------
+   Forgot password
+-------------------------------- */
 router.post("/forgot-password", forgotPassword);
 
-// Reset password
+/* -------------------------------
+   Reset password
+-------------------------------- */
 router.post("/reset-password", resetPassword);
 
 export default router;

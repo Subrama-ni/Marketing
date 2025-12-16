@@ -3,13 +3,13 @@ import pool from "../db.js";
 import nodemailer from "nodemailer";
 
 /* ================================
-   MAIL TRANSPORTER
+   MAIL TRANSPORTER (CONSISTENT)
 ================================ */
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS,
+    user: process.env.EMAIL_USER, // ✅ FIXED
+    pass: process.env.EMAIL_PASS, // ✅ FIXED
   },
 });
 
@@ -41,7 +41,9 @@ export const approveUser = async (req, res) => {
 
     // 1️⃣ Check user exists
     const userRes = await pool.query(
-      "SELECT id, name, email, is_approved FROM users WHERE id=$1",
+      `SELECT id, name, email, is_approved 
+       FROM users 
+       WHERE id = $1`,
       [id]
     );
 
@@ -56,18 +58,15 @@ export const approveUser = async (req, res) => {
       return res.status(400).json({ message: "User already approved" });
     }
 
-    // 3️⃣ Approve + verify email
+    // 3️⃣ Approve user ONLY (email verification handled separately)
     await pool.query(
-      `
-      UPDATE users
-      SET is_approved = TRUE,
-          is_email_verified = TRUE
-      WHERE id = $1
-      `,
+      `UPDATE users 
+       SET is_approved = TRUE 
+       WHERE id = $1`,
       [id]
     );
 
-    // 4️⃣ Send approval email to user
+    // 4️⃣ Notify user
     await transporter.sendMail({
       to: user.email,
       subject: "Your account has been approved ✅",
@@ -75,14 +74,13 @@ export const approveUser = async (req, res) => {
         <h2>Account Approved</h2>
         <p>Hello <b>${user.name}</b>,</p>
         <p>Your account has been approved by the admin.</p>
-        <p>You can now login to the application.</p>
+        <p>You can now login after verifying your email.</p>
         <br/>
         <p>Regards,<br/>Admin</p>
       `,
     });
 
-    res.json({ message: "User approved and notified via email" });
-
+    res.json({ message: "User approved successfully" });
   } catch (err) {
     console.error("❌ approveUser error:", err);
     res.status(500).json({ message: "Server error" });
@@ -98,7 +96,7 @@ export const rejectUser = async (req, res) => {
 
     // 1️⃣ Check user exists
     const userRes = await pool.query(
-      "SELECT id FROM users WHERE id=$1",
+      "SELECT id FROM users WHERE id = $1",
       [id]
     );
 
@@ -106,17 +104,20 @@ export const rejectUser = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 2️⃣ Mark as rejected (SAFER than delete)
+    // 2️⃣ Soft reject (recommended)
     await pool.query(
-      "UPDATE users SET is_approved = FALSE WHERE id=$1",
+      `
+      UPDATE users
+      SET is_approved = FALSE
+      WHERE id = $1
+      `,
       [id]
     );
 
-    // 🔥 OPTIONAL HARD DELETE (UNCOMMENT IF NEEDED)
-    // await pool.query("DELETE FROM users WHERE id=$1", [id]);
+    // 🔥 OPTIONAL HARD DELETE
+    // await pool.query("DELETE FROM users WHERE id = $1", [id]);
 
     res.json({ message: "User rejected successfully" });
-
   } catch (err) {
     console.error("❌ rejectUser error:", err);
     res.status(500).json({ message: "Server error" });

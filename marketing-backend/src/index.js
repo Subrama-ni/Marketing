@@ -79,6 +79,7 @@ async function initDB() {
         role VARCHAR DEFAULT 'user',
         is_email_verified BOOLEAN DEFAULT FALSE,
         is_approved BOOLEAN DEFAULT FALSE,
+        email_verify_token TEXT,   -- ✅ FIX ADDED
         reset_token TEXT,
         reset_token_expiry TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
