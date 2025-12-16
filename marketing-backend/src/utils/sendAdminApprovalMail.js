@@ -1,25 +1,24 @@
 // backend/src/utils/sendAdminApprovalMail.js
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // Gmail App Password
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Send approval email to admin
  */
 export async function sendAdminApprovalMail(user) {
   try {
+    if (!process.env.ADMIN_EMAIL) {
+      console.warn("⚠️ ADMIN_EMAIL not set. Skipping admin approval mail.");
+      return;
+    }
+
     // 🔥 BACKEND approval links (CORRECT)
     const approveUrl = `${process.env.BACKEND_URL}/api/admin/approve/${user.id}`;
     const rejectUrl = `${process.env.BACKEND_URL}/api/admin/reject/${user.id}`;
 
-    const mailOptions = {
-      from: `"Marketing App" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+      from: process.env.FROM_EMAIL,
       to: process.env.ADMIN_EMAIL,
       subject: "🛑 New User Approval Required",
       html: `
@@ -51,19 +50,13 @@ export async function sendAdminApprovalMail(user) {
         ">❌ Reject User</a>
 
         <br/><br/>
-        <small>This action is secure and handled by the backend.</small>
+        <small>This action is handled securely by the backend.</small>
       `,
-    };
-
-    // ✅ Verify transporter (IMPORTANT)
-    await transporter.verify();
-
-    // ✅ Send mail
-    await transporter.sendMail(mailOptions);
+    });
 
     console.log("📧 Admin approval email sent to:", process.env.ADMIN_EMAIL);
   } catch (err) {
-    console.error("❌ Failed to send admin approval mail:", err.message);
-    throw err; // IMPORTANT: surface error
+    console.error("❌ Failed to send admin approval mail:", err);
+    throw err;
   }
 }

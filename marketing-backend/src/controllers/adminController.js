@@ -1,17 +1,11 @@
 // src/controllers/adminController.js
 import pool from "../db.js";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 /* ================================
-   MAIL TRANSPORTER (CONSISTENT)
+   RESEND CLIENT
 ================================ */
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER, // ✅ FIXED
-    pass: process.env.EMAIL_PASS, // ✅ FIXED
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /* ================================
    GET PENDING USERS
@@ -41,8 +35,8 @@ export const approveUser = async (req, res) => {
 
     // 1️⃣ Check user exists
     const userRes = await pool.query(
-      `SELECT id, name, email, is_approved 
-       FROM users 
+      `SELECT id, name, email, is_approved
+       FROM users
        WHERE id = $1`,
       [id]
     );
@@ -58,16 +52,19 @@ export const approveUser = async (req, res) => {
       return res.status(400).json({ message: "User already approved" });
     }
 
-    // 3️⃣ Approve user ONLY (email verification handled separately)
+    // 3️⃣ Approve user
     await pool.query(
-      `UPDATE users 
-       SET is_approved = TRUE 
-       WHERE id = $1`,
+      `
+      UPDATE users
+      SET is_approved = TRUE
+      WHERE id = $1
+      `,
       [id]
     );
 
-    // 4️⃣ Notify user
-    await transporter.sendMail({
+    // 4️⃣ Send approval email (Resend)
+    await resend.emails.send({
+      from: process.env.FROM_EMAIL,
       to: user.email,
       subject: "Your account has been approved ✅",
       html: `
@@ -104,7 +101,7 @@ export const rejectUser = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 2️⃣ Soft reject (recommended)
+    // 2️⃣ Soft reject
     await pool.query(
       `
       UPDATE users
@@ -113,9 +110,6 @@ export const rejectUser = async (req, res) => {
       `,
       [id]
     );
-
-    // 🔥 OPTIONAL HARD DELETE
-    // await pool.query("DELETE FROM users WHERE id = $1", [id]);
 
     res.json({ message: "User rejected successfully" });
   } catch (err) {

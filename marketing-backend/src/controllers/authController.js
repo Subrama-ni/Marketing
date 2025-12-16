@@ -1,22 +1,17 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import pool from "../db.js";
 import { sendAdminApprovalMail } from "../utils/sendAdminApprovalMail.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 /* ======================================================
-   📧 MAIL TRANSPORTER
+   📧 RESEND CLIENT
 ====================================================== */
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.FROM_EMAIL;
 
 /* ======================================================
    REGISTER (STEP 1)
@@ -31,12 +26,12 @@ export const registerUser = async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    const existingUser = await pool.query(
+    const existing = await pool.query(
       "SELECT id FROM users WHERE email=$1",
       [normalizedEmail]
     );
 
-    if (existingUser.rowCount > 0) {
+    if (existing.rowCount > 0) {
       return res.status(400).json({ message: "Email already registered" });
     }
 
@@ -46,26 +41,21 @@ export const registerUser = async (req, res) => {
     const result = await pool.query(
       `
       INSERT INTO users
-        (name, email, password, phone, is_email_verified, is_approved, role, email_verify_token)
+        (name, email, password, phone, role, is_email_verified, is_approved, email_verify_token)
       VALUES
-        ($1, $2, $3, $4, FALSE, FALSE, 'user', $5)
+        ($1,$2,$3,$4,'user',FALSE,FALSE,$5)
       RETURNING id
       `,
-      [
-        name.trim(),
-        normalizedEmail,
-        hashedPassword,
-        phone || null,
-        emailVerifyToken,
-      ]
+      [name.trim(), normalizedEmail, hashedPassword, phone || null, emailVerifyToken]
     );
 
     const verifyLink = `${process.env.FRONTEND_URL}/verify-email/${emailVerifyToken}`;
 
-    // 📩 Send verification mail
-    await transporter.sendMail({
+    /* 📩 SEND VERIFICATION EMAIL */
+    await resend.emails.send({
+      from: FROM_EMAIL,
       to: normalizedEmail,
-      subject: "Verify your email address",
+      subject: "Verify your email",
       html: `
         <h2>Email Verification</h2>
         <p>Hello <b>${name}</b>,</p>
@@ -75,7 +65,7 @@ export const registerUser = async (req, res) => {
       `,
     });
 
-    // 📩 Notify admin
+    /* 📩 NOTIFY ADMIN */
     await sendAdminApprovalMail({
       id: result.rows[0].id,
       name,
@@ -112,9 +102,9 @@ export const verifyEmail = async (req, res) => {
     await pool.query(
       `
       UPDATE users
-      SET is_email_verified = TRUE,
-          email_verify_token = NULL
-      WHERE email_verify_token = $1
+      SET is_email_verified=TRUE,
+          email_verify_token=NULL
+      WHERE email_verify_token=$1
       `,
       [token]
     );
@@ -123,7 +113,7 @@ export const verifyEmail = async (req, res) => {
       message: "Email verified successfully. Please wait for admin approval.",
     });
   } catch (err) {
-    console.error("❌ Email verify error:", err);
+    console.error("❌ Verify email error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -149,9 +139,9 @@ export const loginUser = async (req, res) => {
     }
 
     const user = userRes.rows[0];
-    const isMatch = await bcrypt.compare(password, user.password);
 
-    if (!isMatch) {
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
@@ -168,11 +158,7 @@ export const loginUser = async (req, res) => {
     }
 
     const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
+      { id: user.id, email: user.email, role: user.role },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -199,7 +185,6 @@ export const loginUser = async (req, res) => {
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-
     const normalizedEmail = email?.toLowerCase().trim();
 
     const userRes = await pool.query(
@@ -221,7 +206,8 @@ export const forgotPassword = async (req, res) => {
 
     const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    await transporter.sendMail({
+    await resend.emails.send({
+      from: FROM_EMAIL,
       to: normalizedEmail,
       subject: "Password Reset",
       html: `
@@ -280,16 +266,8 @@ export const resendVerificationEmail = async (req, res) => {
     const { email } = req.body;
     const normalizedEmail = email?.toLowerCase().trim();
 
-    if (!normalizedEmail) {
-      return res.status(400).json({ message: "Email is required" });
-    }
-
     const userRes = await pool.query(
-      `
-      SELECT id, name, email, is_email_verified
-      FROM users
-      WHERE email=$1
-      `,
+      "SELECT id, name, email, is_email_verified FROM users WHERE email=$1",
       [normalizedEmail]
     );
 
@@ -312,13 +290,13 @@ export const resendVerificationEmail = async (req, res) => {
 
     const verifyLink = `${process.env.FRONTEND_URL}/verify-email/${newToken}`;
 
-    await transporter.sendMail({
+    await resend.emails.send({
+      from: FROM_EMAIL,
       to: user.email,
-      subject: "Verify your email address",
+      subject: "Verify your email",
       html: `
-        <h2>Email Verification</h2>
         <p>Hello <b>${user.name}</b>,</p>
-        <p>Click the link below to verify your email:</p>
+        <p>Verify your email:</p>
         <a href="${verifyLink}">${verifyLink}</a>
       `,
     });
@@ -329,10 +307,3 @@ export const resendVerificationEmail = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Mail config error:", error);
-  } else {
-    console.log("✅ Mail server ready");
-  }
-});
