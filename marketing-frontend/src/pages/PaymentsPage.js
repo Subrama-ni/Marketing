@@ -62,7 +62,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     (remaining, commission, bags, alreadyPaidVal, luggage) => {
       if (billingMode === "luggage") {
         return Math.max(
-          Number(remaining) - Number(commission) - Number(alreadyPaidVal || 0) - Number(luggage || 0),
+          Number(remaining) - Number(commission) - Number(alreadyPaidVal || 0) + Number(luggage || 0),
           0
         );
       }

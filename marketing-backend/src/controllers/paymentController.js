@@ -188,10 +188,6 @@ export const makePayment = async (req, res) => {
       return sum + (amt - Number(e.paid_amount || 0));
     }, 0);
 
-    if (Number(amount) > totalRemaining) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ message: `Payment exceeds remaining amount for selected entries. Remaining: ₹${totalRemaining}` });
-    }
     if (Number(amount) <= 0) {
       await client.query("ROLLBACK");
       return res.status(400).json({ message: "Invalid payment amount." });
