@@ -419,7 +419,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     }
 
     if (luggageTotal > 0 && billingMode === "luggage") {
-      doc.text(`Luggage Total: -₹${luggageTotal}`, 14, y);
+      doc.text(`Luggage Total: +₹${luggageTotal}`, 14, y);
       y += 8;
     }
 

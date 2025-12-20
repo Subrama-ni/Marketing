@@ -9,19 +9,28 @@ import {
   deleteEntry,
   updateEntry,
 } from "../api";
-import { toast, Slide } from "react-toastify";
+import { toast } from "react-toastify";
 import { useBillingMode } from "../context/BillingModeContext";
 
-const useQuery = () => new URLSearchParams(useLocation().search);
+/* ---------------------------------------
+   SAFE QUERY HELPER (FIXES CRASH)
+--------------------------------------- */
+function useQuery() {
+  const location = useLocation();
+  return new URLSearchParams(location.search || "");
+}
 
-export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
-  const query = useQuery();
+export default function EntriesPage({ selectedCustomer }) {
+  useQuery(); // kept for backward compatibility
+
   const { billingMode, setBillingMode } = useBillingMode();
 
   const [customers, setCustomers] = useState([]);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
 
-  const [customerId, setCustomerId] = useState(selectedCustomer?.id || "");
+  const [customerId, setCustomerId] = useState(
+    selectedCustomer?.id ? String(selectedCustomer.id) : ""
+  );
   const [entries, setEntries] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -38,30 +47,35 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     luggage_amount: "",
   });
 
-  /** LOAD ALL CUSTOMERS (never filtered here) */
+  /* ---------------------------------------
+     LOAD CUSTOMERS
+  --------------------------------------- */
   const loadCustomers = useCallback(async () => {
     try {
-      const res = await getCustomers(); // get ALL customers
+      const res = await getCustomers();
       setCustomers(res.data || []);
     } catch {
-      toast.error("Error loading customers");
+      toast.error("Failed to load customers");
     }
   }, []);
 
-  /** FILTER customers based on current billingMode */
-  const applyFilter = useCallback(() => {
-    const filtered = customers.filter((c) => {
-      if (billingMode === "farmer") return true; // all customers allowed
-      if (billingMode === "luggage") return true; // all customers allowed
-      return true;
-    });
-
-    setFilteredCustomers(filtered);
+  /* ---------------------------------------
+     APPLY BILLING MODE FILTER
+  --------------------------------------- */
+  useEffect(() => {
+    setFilteredCustomers(customers);
   }, [customers, billingMode]);
 
-  /** LOAD ENTRIES FOR SELECTED CUSTOMER */
+  /* ---------------------------------------
+     LOAD ENTRIES FOR CUSTOMER
+  --------------------------------------- */
   const loadEntries = useCallback(
     async (cid) => {
+      if (!cid) {
+        setEntries([]);
+        return;
+      }
+
       try {
         setLoading(true);
         const res = await getEntriesByCustomer(cid, billingMode);
@@ -75,19 +89,20 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
           const luggageAmount = Number(e.luggage_amount || 0);
 
           const amount =
-            billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate;
+            billingMode === "luggage"
+              ? luggageAmount
+              : (kgs - commission) * rate;
 
           return {
             ...e,
             amount,
             remaining: Math.max(amount - paid, 0),
-            luggage_amount: luggageAmount,
           };
         });
 
         setEntries(processed);
       } catch {
-        toast.error("Error loading entries");
+        toast.error("Failed to load entries");
       } finally {
         setLoading(false);
       }
@@ -95,29 +110,29 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     [billingMode]
   );
 
-  /** INITIAL LOAD */
+  /* ---------------------------------------
+     INITIAL LOAD
+  --------------------------------------- */
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
 
-  /** Whenever billing mode changes — filter customers */
+  /* ---------------------------------------
+     CUSTOMER / MODE CHANGE
+  --------------------------------------- */
   useEffect(() => {
-    applyFilter();
-  }, [customers, billingMode, applyFilter]);
-
-  /** Update Selected Customer */
-  useEffect(() => {
-    if (customerId) loadEntries(customerId);
-    else setEntries([]);
+    loadEntries(customerId);
   }, [customerId, billingMode, loadEntries]);
 
-  /** Submit Entry */
+  /* ---------------------------------------
+     FORM SUBMIT
+  --------------------------------------- */
   const submit = async (e) => {
     e.preventDefault();
 
-    if (!customerId) return toast.warn("Please select customer");
+    if (!customerId) return toast.warn("Select a customer");
     if (!form.date || !form.kgs || !form.rate)
-      return toast.warn("Date, Kgs, and Rate required");
+      return toast.warn("Date, Kgs and Rate are required");
 
     const payload = {
       customerId: Number(customerId),
@@ -141,18 +156,71 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
     try {
       if (editingId) {
         await updateEntry(editingId, payload);
-        toast.success("Entry updated!");
+        toast.success("Entry updated");
       } else {
         await createEntry(payload);
-        toast.success("Entry added!");
+        toast.success("Entry added");
       }
 
+      handleCancel();
       loadEntries(customerId);
-    } catch (err) {
-      toast.error("Error saving entry");
+    } catch {
+      toast.error("Failed to save entry");
     }
   };
 
+  /* ---------------------------------------
+     EDIT ENTRY
+  --------------------------------------- */
+  const handleEdit = (entry) => {
+    setEditingId(entry.id);
+    setForm({
+      date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
+      kgs: entry.kgs || "",
+      rate: entry.rate || "",
+      commission: entry.commission || "",
+      item_name: entry.item_name || "",
+      bags: entry.bags || "",
+      already_paid: entry.already_paid || "",
+      luggage_amount: entry.luggage_amount || "",
+    });
+  };
+
+  /* ---------------------------------------
+     DELETE ENTRY
+  --------------------------------------- */
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this entry?")) return;
+
+    try {
+      await deleteEntry(id);
+      toast.success("Entry deleted");
+      loadEntries(customerId);
+    } catch {
+      toast.error("Failed to delete entry");
+    }
+  };
+
+  /* ---------------------------------------
+     CANCEL EDIT
+  --------------------------------------- */
+  const handleCancel = () => {
+    setEditingId(null);
+    setForm({
+      date: "",
+      kgs: "",
+      rate: "",
+      commission: "",
+      item_name: "",
+      bags: "",
+      already_paid: "",
+      luggage_amount: "",
+    });
+  };
+
+  /* ---------------------------------------
+     UI
+  --------------------------------------- */
   return (
     <div className="col">
       <div className="card">
@@ -172,9 +240,7 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
           <select
             className="input"
             value={customerId}
-            onChange={(e) => {
-              setCustomerId(e.target.value);
-            }}
+            onChange={(e) => setCustomerId(e.target.value)}
           >
             <option value="">-- select customer --</option>
             {filteredCustomers.map((c) => (
@@ -184,10 +250,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             ))}
           </select>
 
-          
-
-
-          {/* DATE */}
           <input
             className="input"
             type="date"
@@ -195,16 +257,13 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, date: e.target.value })}
           />
 
-          {/* ITEM NAME */}
           <input
             className="input"
-            name="item_name"
             placeholder="Item Name"
             value={form.item_name}
             onChange={(e) => setForm({ ...form, item_name: e.target.value })}
           />
 
-          {/* KGS */}
           <input
             className="input"
             type="number"
@@ -213,7 +272,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, kgs: e.target.value })}
           />
 
-          {/* RATE */}
           <input
             className="input"
             type="number"
@@ -222,7 +280,6 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             onChange={(e) => setForm({ ...form, rate: e.target.value })}
           />
 
-          {/* MODE-BASED INPUTS */}
           {billingMode === "farmer" ? (
             <>
               <input
@@ -230,7 +287,9 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                 type="number"
                 placeholder="Commission"
                 value={form.commission}
-                onChange={(e) => setForm({ ...form, commission: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, commission: e.target.value })
+                }
               />
               <input
                 className="input"
@@ -244,9 +303,11 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             <input
               className="input"
               type="number"
-              placeholder="Luggage Amount (₹)"
+              placeholder="Luggage Amount"
               value={form.luggage_amount}
-              onChange={(e) => setForm({ ...form, luggage_amount: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, luggage_amount: e.target.value })
+              }
             />
           )}
 
@@ -255,50 +316,46 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
             type="number"
             placeholder="Already Paid"
             value={form.already_paid}
-            onChange={(e) => setForm({ ...form, already_paid: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, already_paid: e.target.value })
+            }
           />
 
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button className="btn" type="submit">
-              {editingId ? "Save Changes" : "Add Entry"}
+          <button className="btn" type="submit">
+            {editingId ? "Save Changes" : "Add Entry"}
+          </button>
+
+          {editingId && (
+            <button className="btn ghost" type="button" onClick={handleCancel}>
+              Cancel
             </button>
-            {editingId && (
-              <button className="btn ghost" onClick={handleCancel}>
-                Cancel
-              </button>
-            )}
-          </div>
+          )}
         </form>
       </div>
 
-      {/* TABLE */}
       <div className="card" style={{ marginTop: 12 }}>
-        <h2>Entries — {billingMode === "luggage" ? "Luggage" : "Farmer"}</h2>
+        <h2>Entries</h2>
 
         {loading ? (
-          <div>Loading entries...</div>
+          <div>Loading...</div>
         ) : (
           <table className="table">
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Item</th>
-                {billingMode === "luggage" ? <th>Luggage</th> : <th>Bags</th>}
                 <th>Kgs</th>
                 <th>Rate</th>
-                {billingMode === "farmer" && <th>Commission</th>}
                 <th>Amount</th>
                 <th>Paid</th>
-                <th>Already Paid</th>
                 <th>Remaining</th>
                 <th>Actions</th>
               </tr>
             </thead>
-
             <tbody>
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan="11" style={{ textAlign: "center" }}>
+                  <td colSpan="8" style={{ textAlign: "center" }}>
                     No entries found
                   </td>
                 </tr>
@@ -307,28 +364,22 @@ export default function EntriesPage({ selectedCustomer, onSelectCustomer }) {
                   <tr key={e.id}>
                     <td>{dayjs(e.entry_date).format("DD/MM/YYYY")}</td>
                     <td>{e.item_name || "-"}</td>
-
-                    {billingMode === "luggage" ? (
-                      <td>₹{Number(e.luggage_amount || 0).toFixed(2)}</td>
-                    ) : (
-                      <td>{e.bags || 0}</td>
-                    )}
-
                     <td>{e.kgs}</td>
                     <td>{e.rate}</td>
-
-                    {billingMode === "farmer" && <td>{e.commission}</td>}
-
                     <td>₹{e.amount.toFixed(2)}</td>
-                    <td>₹{Number(e.paid_amount).toFixed(2)}</td>
-                    <td>₹{Number(e.already_paid).toFixed(2)}</td>
+                    <td>₹{Number(e.paid_amount || 0).toFixed(2)}</td>
                     <td>₹{e.remaining.toFixed(2)}</td>
-
-                    <td style={{ display: "flex", gap: 6 }}>
-                      <button className="btn ghost" onClick={() => handleEdit(e)}>
+                    <td>
+                      <button
+                        className="btn ghost"
+                        onClick={() => handleEdit(e)}
+                      >
                         Edit
                       </button>
-                      <button className="btn ghost" onClick={() => handleDelete(e.id)}>
+                      <button
+                        className="btn ghost"
+                        onClick={() => handleDelete(e.id)}
+                      >
                         Delete
                       </button>
                     </td>
