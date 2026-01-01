@@ -187,6 +187,10 @@ export const makePayment = async (req, res) => {
       const amt = billingType === "luggage" ? Number(e.kgs) * Number(e.rate) : Number(e.kgs) * Number(e.rate) - Number(e.commission || 0);
       return sum + (amt - Number(e.paid_amount || 0));
     }, 0);
+    if (billingType === "farmer" &&Number(amount) > totalRemaining) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ message: `Payment amount exceeds total remaining of ₹${totalRemaining.toFixed(2)} for the selected entries.` });
+    }
 
     if (Number(amount) <= 0) {
       await client.query("ROLLBACK");

@@ -1,6 +1,6 @@
 {
-  "packageId": "com.marketing.platform",
-  "host": "marketing-db-ihb3.onrender.com",
+  "packageId": "com.onrender.marketing_platform_9ua2.twa",
+  "host": "marketing-platform-9ua2.onrender.com",
   "name": "Marketing Platform",
   "launcherName": "Marketing",
   "display": "standalone",
@@ -12,31 +12,21 @@
   "navigationDividerColorDark": "#000000",
   "backgroundColor": "#FFFFFF",
   "enableNotifications": true,
-
-  "startUrl": "https://marketing-db-ihb3.onrender.com/",
-  "fullScopeUrl": "https://marketing-db-ihb3.onrender.com/",
-
-  "iconUrl": "https://marketing-db-ihb3.onrender.com/icon-512x512.png",
-  "maskableIconUrl": "https://marketing-db-ihb3.onrender.com/icon-512x512.png",
-  "monochromeIconUrl": "https://marketing-db-ihb3.onrender.com/icon-512x512.png",
-
+  "startUrl": "/",
+  "iconUrl": "https://marketing-platform-9ua2.onrender.com/icon-512x512.png",
+  "maskableIconUrl": "https://marketing-platform-9ua2.onrender.com/icon-512x512.png",
+  "monochromeIconUrl": "https://marketing-platform-9ua2.onrender.com/icon-512x512.png",
   "splashScreenFadeOutDuration": 300,
-
   "signingKey": {
     "path": "C:\\Users\\st562\\OneDrive\\Desktop\\Marketing\\marketing-frontend\\android.keystore",
     "alias": "android"
   },
-
-  "appVersionName": "3",
-  "appVersionCode": 3,
-
+  "appVersionName": "1",
+  "appVersionCode": 1,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
-
-  "webManifestUrl": "https://marketing-db-ihb3.onrender.com/manifest.json",
-
+  "webManifestUrl": "https://marketing-platform-9ua2.onrender.com/manifest.json",
   "fallbackType": "customtabs",
-
   "features": {
     "playBilling": {
       "enabled": true
@@ -45,14 +35,13 @@
       "enabled": true
     }
   },
-
   "alphaDependencies": {
     "enabled": false
   },
-
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
+  "fullScopeUrl": "https://marketing-platform-9ua2.onrender.com/",
   "minSdkVersion": 21,
   "orientation": "portrait",
   "fingerprints": [],
@@ -61,5 +50,6 @@
   "protocolHandlers": [],
   "fileHandlers": [],
   "launchHandlerClientMode": "",
-  "displayOverride": []
+  "displayOverride": [],
+  "appVersion": "1"
 }

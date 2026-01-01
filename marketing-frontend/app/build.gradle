@@ -21,7 +21,7 @@ plugins {
 }
 
 def twaManifest = [
-    applicationId: 'com.marketing.platform',
+    applicationId: 'com.onrender.marketing_platform_9ua2.twa',
     hostName: 'marketing-platform-9ua2.onrender.com', // The domain being opened in the TWA.
     launchUrl: '/', // The start path for the TWA. Must be relative to the domain.
     name: 'Marketing Platform', // The application name.
@@ -52,13 +52,13 @@ def twaManifest = [
 
 android {
     compileSdkVersion 36
-    namespace "com.marketing.platform"
+    namespace "com.onrender.marketing_platform_9ua2.twa"
     defaultConfig {
-        applicationId "com.marketing.platform"
+        applicationId "com.onrender.marketing_platform_9ua2.twa"
         minSdkVersion 21
         targetSdkVersion 35
-        versionCode 2
-        versionName "2"
+        versionCode 1
+        versionName "1"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name

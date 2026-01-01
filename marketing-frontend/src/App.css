@@ -25,9 +25,9 @@
   --card-bg: #ffffff;
   --accent: #3d8361;
   --accent-hover: #2f6a4e;
-  --border: #e2e8f0;
+  --border: black;
   --hover: #f1f5f9;
-  --shadow: rgba(0, 0, 0, 0.08);
+  --shadow: rgba(15, 125, 129, 0.08);
   --radius: 10px;
   --transition: all 0.3s ease;
 }
@@ -613,4 +613,176 @@ body {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+/* =========================================================
+   🎬 ADVANCED PROFESSIONAL ANIMATIONS (NON-INTRUSIVE)
+========================================================= */
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* =========================================================
+   📄 PAGE / CONTENT LOAD ANIMATION
+========================================================= */
+.main-content {
+  animation: pageFadeIn 0.35s ease-out;
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =========================================================
+   🧾 CARD REVEAL (STAGGER READY)
+========================================================= */
+.card {
+  animation: cardReveal 0.35s ease-out both;
+}
+
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Optional stagger (use inline style: animation-delay: 0.1s) */
+.card[data-delay] {
+  animation-delay: attr(data-delay ms);
+}
+
+/* =========================================================
+   📊 STAT CARD MICRO MOTION
+========================================================= */
+.stat {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat:hover {
+  transform: translateY(-2px);
+}
+
+/* =========================================================
+   🧱 SIDEBAR INTERACTIONS (PROFESSIONAL)
+========================================================= */
+.sidebar-link,
+.menu-item {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle hover slide */
+.sidebar-link:hover,
+.menu-item:hover {
+  transform: translateX(2px);
+}
+
+/* Active indicator slide-in */
+.sidebar-link.active::before,
+.menu-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 3px;
+  background: currentColor;
+  border-radius: 2px;
+  animation: activeIndicator 0.25s ease-out;
+}
+
+@keyframes activeIndicator {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: 70%;
+    opacity: 1;
+  }
+}
+
+/* =========================================================
+   🔘 BUTTON MICRO-INTERACTIONS
+========================================================= */
+.btn {
+  transition:
+    background-color 0.2s ease,
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+/* =========================================================
+   ✍️ INPUT FOCUS FEEDBACK
+========================================================= */
+.input {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input:focus {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* =========================================================
+   📋 TABLE ROW FEEDBACK
+========================================================= */
+.table tr {
+  transition: background-color 0.15s ease;
+}
+
+/* =========================================================
+   🔄 LOADING / STATE FEEDBACK
+========================================================= */
+.loading {
+  animation: loadingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+/* =========================================================
+   🔔 TOAST / FEEDBACK POP (SUBTLE)
+========================================================= */
+.Toastify__toast {
+  animation: toastSlideIn 0.3s ease-out;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
