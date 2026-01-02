@@ -2,7 +2,7 @@ import express from "express";
 import {
   registerUser,
   verifyEmail,
-  resendVerificationEmail,
+  sendVerificationLink,   // 🔄 renamed controller (EmailJS flow)
   loginUser,
   forgotPassword,
   resetPassword,
@@ -25,9 +25,11 @@ router.post("/register", registerUser);
 router.get("/verify-email/:token", verifyEmail);
 
 /* -------------------------------
-   STEP 2.1: Resend verification email
+   STEP 2.1: Resend verification email (EmailJS)
+   ❌ Backend does NOT send email
+   ✅ Returns verification link
 -------------------------------- */
-router.post("/resend-verification", resendVerificationEmail);
+router.post("/resend-verification", sendVerificationLink);
 
 /* -------------------------------
    STEP 4: Login
@@ -35,7 +37,9 @@ router.post("/resend-verification", resendVerificationEmail);
 router.post("/login", loginUser);
 
 /* -------------------------------
-   Forgot password
+   Forgot password (EmailJS)
+   ❌ Backend does NOT send email
+   ✅ Returns reset link
 -------------------------------- */
 router.post("/forgot-password", forgotPassword);
 

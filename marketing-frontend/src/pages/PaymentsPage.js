@@ -288,65 +288,80 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   const clearAllUnpaid = () => setSelectedUnpaidIds(new Set());
 
   const handlePay = async () => {
-    if (!customerId) return toast.warn("Select customer");
-    if (!fromDate || !toDate) return toast.warn("Select range");
-    if (Number(payAmount) <= 0) return toast.error("Invalid payment value");
+  if (!customerId) return toast.warn("Select customer");
+  if (!fromDate || !toDate) return toast.warn("Select range");
+  if (Number(payAmount) <= 0) return toast.error("Invalid payment value");
 
-    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
-    if (!unpaidSelected.length) return toast.info("No unpaid entries selected.");
+  const unpaidSelected = entriesData.entries.filter(
+    (e) => e.remaining > 0 && selectedUnpaidIds.has(e.id)
+  );
+  if (!unpaidSelected.length) return toast.info("No unpaid entries selected.");
 
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
 
-      const payload = {
-        customerId: Number(customerId),
-        amount: Number(payAmount),
-        paymentMode: mode,
-        fromDate: toISODate(fromDate),
-        toDate: toISODate(toDate),
-        billingType: billingMode,
-        meta: {
-          commissionPercent: Number(commissionPercent || 0),
-          commissionAmount: Number(commissionAmount || 0),
-          bagCount: Number(bagCount || 0),
-          bagAmountPer: Number(bagAmountPer || 0),
-          bagTotal: Number(bagTotal || 0),
-          alreadyPaid,
-          luggageTotal,
-          includedEntryIds: Array.from(selectedUnpaidIds),
-        },
+    const payload = {
+      customerId: Number(customerId),
+      amount: Number(payAmount),
+      paymentMode: mode,
+      fromDate: toISODate(fromDate),
+      toDate: toISODate(toDate),
+      billingType: billingMode,
+      meta: {
+        commissionPercent: Number(commissionPercent || 0),
+        commissionAmount: Number(commissionAmount || 0),
+        bagCount: Number(bagCount || 0),
+        bagAmountPer: Number(bagAmountPer || 0),
+        bagTotal: Number(bagTotal || 0),
+        alreadyPaid,
+        luggageTotal,
+        includedEntryIds: Array.from(selectedUnpaidIds),
+      },
+    };
+
+    // 1️⃣ Make payment
+    await makePayment(payload);
+
+    // 2️⃣ Mark entries as fully paid
+    for (const entry of unpaidSelected) {
+      const upd = {
+        customerId: entry.customer_id,
+        entry_date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
+        kgs: entry.kgs,
+        rate: entry.rate,
+        commission: entry.commission,
+        item_name: entry.item_name,
+        bags: entry.bags,
+        luggage_amount: entry.luggage_amount,
+        paid_amount: entry.amount,
+        remaining: 0,
       };
-
-      await makePayment(payload);
-
-      for (const entry of unpaidSelected) {
-        const upd = {
-          customerId: entry.customer_id,
-          entry_date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
-          kgs: entry.kgs,
-          rate: entry.rate,
-          commission: entry.commission,
-          item_name: entry.item_name,
-          bags: entry.bags,
-          luggage_amount: entry.luggage_amount,
-          paid_amount: entry.amount,
-          remaining: 0,
-        };
-        await updateEntry(entry.id, upd);
-      }
-
-      await loadCustomers(billingMode);
-      await fetchHistory(customerId);
-
-      toast.success("Payment successful!");
-      generatePDF();
-    } catch (err) {
-      console.error("❌ Payment error:", err);
-      toast.error("Error processing payment");
-    } finally {
-      setLoading(false);
+      await updateEntry(entry.id, upd);
     }
-  };
+
+    // 3️⃣ Reload backend data (still needed for PDF + history)
+    await loadCustomers(billingMode);
+    await fetchHistory(customerId);
+
+    // 4️⃣ Success feedback
+    toast.success("Payment successful!");
+
+    // 5️⃣ Generate receipt
+    generatePDF();
+
+    // 6️⃣ HARD REFRESH (PREVENT DUPLICATE PAYMENTS)
+    setTimeout(() => {
+      window.location.reload();
+    }, 1200); // slight delay so user sees success toast
+
+  } catch (err) {
+    console.error("❌ Payment error:", err);
+    toast.error("Error processing payment");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const generatePDF = (historyRecord = null, forPrint = false) => {
     const doc = new jsPDF();

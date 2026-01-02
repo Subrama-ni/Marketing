@@ -180,12 +180,16 @@ export const loginUser = async (req, res) => {
 };
 
 /* ======================================================
-   FORGOT PASSWORD
+   FORGOT PASSWORD  (SOLUTION B – EmailJS)
 ====================================================== */
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
     const normalizedEmail = email?.toLowerCase().trim();
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Email is required" });
+    }
 
     const userRes = await pool.query(
       "SELECT id, name FROM users WHERE email=$1",
@@ -196,33 +200,36 @@ export const forgotPassword = async (req, res) => {
       return res.status(400).json({ message: "User not found" });
     }
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const expiry = new Date(Date.now() + 60 * 60 * 1000);
+    const user = userRes.rows[0];
 
+    // 1️⃣ Generate secure reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // 2️⃣ Store token & expiry
     await pool.query(
       "UPDATE users SET reset_token=$1, reset_token_expiry=$2 WHERE id=$3",
-      [resetToken, expiry, userRes.rows[0].id]
+      [resetToken, expiry, user.id]
     );
 
+    // 3️⃣ Build reset link (frontend page)
     const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    await resend.emails.send({
-      from: FROM_EMAIL,
-      to: normalizedEmail,
-      subject: "Password Reset",
-      html: `
-        <p>Hello ${userRes.rows[0].name},</p>
-        <p>Reset your password:</p>
-        <a href="${resetLink}">${resetLink}</a>
-      `,
+    // ❌ DO NOT SEND EMAIL HERE
+    // ✅ FRONTEND (EmailJS) WILL SEND IT
+
+    // 4️⃣ Return link to frontend
+    res.json({
+      resetLink,
+      name: user.name,
     });
 
-    res.json({ message: "Password reset link sent" });
   } catch (err) {
     console.error("❌ Forgot password error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 /* ======================================================
    RESET PASSWORD
@@ -304,6 +311,62 @@ export const resendVerificationEmail = async (req, res) => {
     res.json({ message: "Verification email resent successfully" });
   } catch (err) {
     console.error("❌ Resend verification error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+/* ======================================================
+   EMAIL VERIFICATION (SOLUTION B – EmailJS)
+====================================================== */
+export const sendVerificationLink = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const normalizedEmail = email?.toLowerCase().trim();
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const userRes = await pool.query(
+      "SELECT id, name, is_verified FROM users WHERE email=$1",
+      [normalizedEmail]
+    );
+
+    if (userRes.rowCount === 0) {
+      return res.status(400).json({ message: "User not found" });
+    }
+
+    const user = userRes.rows[0];
+
+    if (user.is_verified) {
+      return res.status(400).json({ message: "Email already verified" });
+    }
+
+    // 1️⃣ Generate verification token
+    const verifyToken = crypto.randomBytes(32).toString("hex");
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // 2️⃣ Store token + expiry
+    await pool.query(
+      `UPDATE users 
+       SET email_verify_token=$1, email_verify_expiry=$2 
+       WHERE id=$3`,
+      [verifyToken, expiry, user.id]
+    );
+
+    // 3️⃣ Create verification link (frontend)
+    const verifyLink = `${process.env.FRONTEND_URL}/verify-email/${verifyToken}`;
+
+    // ❌ DO NOT SEND EMAIL HERE
+    // ✅ FRONTEND (EmailJS) WILL SEND IT
+
+    // 4️⃣ Return link to frontend
+    res.json({
+      verifyLink,
+      name: user.name,
+    });
+
+  } catch (err) {
+    console.error("❌ Email verification error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
