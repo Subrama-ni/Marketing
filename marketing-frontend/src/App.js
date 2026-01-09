@@ -33,6 +33,9 @@ import "react-toastify/dist/ReactToastify.css";
 
 import { initActivityListeners, resetActivityListeners } from "./sessionActivity";
 import { getSettings } from "./api";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+
+<Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
 const DEFAULT_ACTIVE_MINUTES = 10;
 const DEFAULT_INACTIVE_MINUTES = 10;
