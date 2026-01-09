@@ -13163,9 +13163,6 @@ com.google.j2objc.annotations.WeakOuter
 com.google.thirdparty.publicsuffix.PublicSuffixPatterns
 com.google.thirdparty.publicsuffix.PublicSuffixType
 com.google.thirdparty.publicsuffix.TrieParser
-com.marketing.platform.Application
-com.marketing.platform.DelegationService
-com.marketing.platform.LauncherActivity
 com.onrender.marketing_platform_9ua2.twa.R$bool
 com.onrender.marketing_platform_9ua2.twa.R$color
 com.onrender.marketing_platform_9ua2.twa.R$drawable
