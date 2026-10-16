@@ -108,7 +108,7 @@ export const getCustomerBalance = async (req, res) => {
       });
     }
 
-    const balance = await getCustomerBalance(
+    const balance = await readCustomerBalance(
       pool,
       userId,
       Number(customerId),
@@ -387,7 +387,7 @@ export const getEntriesForPayment = async (req, res) => {
       0,
     );
 
-    const carryForwardBalance = await getCustomerBalance(
+    const carryForwardBalance = await readCustomerBalance(
       pool,
       userId,
       customerId,
