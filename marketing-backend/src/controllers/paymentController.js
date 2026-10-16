@@ -664,7 +664,7 @@ export const makePayment = async (req, res) => {
         `UPDATE entries
          SET
            paid_amount = $1,
-           remaining = GREATEST(0, $2 - $1),
+           remaining = GREATEST(0::numeric, $2::numeric - $1::numeric),
            fully_paid_at = CASE
              WHEN $3 THEN COALESCE(
                fully_paid_at,
