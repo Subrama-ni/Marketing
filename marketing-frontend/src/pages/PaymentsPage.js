@@ -2,9 +2,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   getEntriesForPayment,
+  getCustomerBalance,
   makePayment,
   getPaymentHistory,
-  updateEntry,
   getCustomers,
 } from "../api";
 import dayjs from "dayjs";
@@ -16,10 +16,11 @@ import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useBillingMode } from "../context/BillingModeContext";
 
-const ONLY_SHOW_CUSTOMERS_WITH_ENTRIES = true;
+const ONLY_SHOW_CUSTOMERS_WITH_ENTRIES = false;
 
 export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
-  const { billingMode } = useBillingMode(); // "farmer" | "luggage"
+  const { billingMode } = useBillingMode();
+
   const [customers, setCustomers] = useState([]);
   const [customerId, setCustomerId] = useState(selectedCustomer?.id || "");
 
@@ -28,17 +29,27 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
   const [entriesData, setEntriesData] = useState({
     entries: [],
-    totals: { totalAmount: 0, totalPaid: 0, remainingOutside: 0 },
+    carryForwardBalance: 0,
+    totals: {
+      totalAmount: 0,
+      totalPaid: 0,
+      totalRemaining: 0,
+      remainingOutside: 0,
+      totalOutstanding: 0,
+    },
   });
 
   const [scheduledEntries, setScheduledEntries] = useState([]);
-
   const [payAmount, setPayAmount] = useState(0);
   const [mode, setMode] = useState("cash");
   const [history, setHistory] = useState([]);
-
   const [loading, setLoading] = useState(false);
   const [blockedDates, setBlockedDates] = useState(new Set());
+
+  // Saved balance is independent of date filters and entry loading.
+  const [savedCustomerBalance, setSavedCustomerBalance] = useState(0);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState("");
 
   // Commission
   const [commissionPercent, setCommissionPercent] = useState("");
@@ -50,25 +61,47 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
   const [bagAmountPer, setBagAmountPer] = useState(0);
   const [bagTotal, setBagTotal] = useState(0);
 
-  // Already Paid (extracted from selected unpaid entries)
+  // Existing entry payment details
   const [alreadyPaid, setAlreadyPaid] = useState(0);
-
-  // Luggage total (from selected unpaid entries)
   const [luggageTotal, setLuggageTotal] = useState(0);
 
   const [selectedUnpaidIds, setSelectedUnpaidIds] = useState(new Set());
+
+  const carryForwardBalance = Number(
+    savedCustomerBalance || entriesData.carryForwardBalance || 0,
+  );
+
+  const selectedOutstanding = entriesData.entries
+    .filter(
+      (entry) => Number(entry.remaining) > 0 && selectedUnpaidIds.has(entry.id),
+    )
+    .reduce((total, entry) => total + Number(entry.remaining || 0), 0);
+
+  const totalOutstanding = Number(
+    (carryForwardBalance + selectedOutstanding).toFixed(2),
+  );
 
   const computeFinalPayable = useCallback(
     (remaining, commission, bags, alreadyPaidVal, luggage) => {
       if (billingMode === "luggage") {
         return Math.max(
-          Number(remaining) - Number(commission) - Number(alreadyPaidVal || 0) + Number(luggage || 0),
-          0
+          Number(remaining) -
+            Number(commission) -
+            Number(alreadyPaidVal || 0) +
+            Number(luggage || 0),
+          0,
         );
       }
-      return Math.max(Number(remaining) - Number(commission) + Number(bags) - Number(alreadyPaidVal), 0);
+
+      return Math.max(
+        Number(remaining) -
+          Number(commission) +
+          Number(bags) -
+          Number(alreadyPaidVal),
+        0,
+      );
     },
-    [billingMode]
+    [billingMode],
   );
 
   const toISODate = useCallback((dateStr) => {
@@ -78,36 +111,88 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
   const formatDateDDMMYYYY = useCallback((dateStr) => {
     if (!dateStr) return "";
-    const d = dayjs(dateStr);
-    return d.isValid() ? d.format("DD/MM/YYYY") : dateStr;
+    const date = dayjs(dateStr);
+    return date.isValid() ? date.format("DD/MM/YYYY") : dateStr;
   }, []);
 
-  /* --------------------- Load Customers ------------------------ */
+  /* --------------------- Load Customers --------------------- */
+
   const loadCustomers = useCallback(
-    async (mode = billingMode) => {
+    async (selectedBillingMode = billingMode) => {
       try {
         if (ONLY_SHOW_CUSTOMERS_WITH_ENTRIES) {
-          const res = await getCustomers({ billingType: mode });
-          setCustomers(res.data || []);
+          const response = await getCustomers({
+            billingType: selectedBillingMode,
+          });
+          setCustomers(response.data || []);
         } else {
-          const res = await getCustomers();
-          setCustomers(res.data || []);
+          const response = await getCustomers();
+          setCustomers(response.data || []);
         }
-      } catch (err) {
-        console.error("❌ Error loading customers:", err);
+      } catch (error) {
+        console.error("Error loading customers:", error);
         toast.error("Error loading customers");
       }
     },
-    [billingMode]
+    [billingMode],
   );
 
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
 
+  /* --------------------- Automatic Customer Balance --------------------- */
+
   useEffect(() => {
-    loadCustomers(billingMode);
-  }, [billingMode, loadCustomers]);
+    let cancelled = false;
+
+    const loadSavedBalance = async () => {
+      if (!customerId) {
+        setSavedCustomerBalance(0);
+        setBalanceError("");
+        setBalanceLoading(false);
+        return;
+      }
+
+      setBalanceLoading(true);
+      setBalanceError("");
+
+      try {
+        const response = await getCustomerBalance(customerId, billingMode);
+        const data = response?.data ?? response;
+
+        const balance = Number(
+          data?.balance ??
+            data?.currentBalance ??
+            data?.carryForwardBalance ??
+            0,
+        );
+
+        if (!cancelled) {
+          setSavedCustomerBalance(Number.isFinite(balance) ? balance : 0);
+        }
+      } catch (error) {
+        console.error("Error loading customer balance:", error);
+
+        if (!cancelled) {
+          setBalanceError(
+            error?.response?.data?.message ||
+              "Unable to load the saved customer balance.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setBalanceLoading(false);
+        }
+      }
+    };
+
+    loadSavedBalance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, billingMode]);
 
   useEffect(() => {
     if (selectedCustomer) {
@@ -117,103 +202,194 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer]);
 
-  /* --------------------- Fetch Entries Range ------------------------ */
+  /* --------------------- Fetch Entries --------------------- */
+
   const fetchEntries = async () => {
-    if (!customerId) return toast.warn("Select customer");
-    if (!fromDate || !toDate) return toast.warn("Select date range");
+    if (!customerId) {
+      return toast.warn("Select customer");
+    }
+
+    if (!fromDate || !toDate) {
+      return toast.warn("Select date range");
+    }
+
+    if (dayjs(fromDate).isAfter(dayjs(toDate))) {
+      return toast.warn("From date cannot be after To date");
+    }
 
     try {
       setLoading(true);
-      const res = await getEntriesForPayment(customerId, toISODate(fromDate), toISODate(toDate), billingMode);
-      const data = res.data?.entries || [];
 
-      const normalized = data.map((e) => {
-        const kgs = Number(e.kgs || 0);
-        const rate = Number(e.rate || 0);
-        const commission = Number(e.commission || 0);
-        const luggageAmount = Number(e.luggage_amount || 0);
+      const response = await getEntriesForPayment(
+        customerId,
+        toISODate(fromDate),
+        toISODate(toDate),
+        billingMode,
+      );
 
-        const amount = billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate;
-        const paid = Number(e.paid_amount || 0);
+      const responseData = response.data || {};
+      const data = responseData.entries || [];
+
+      const carryForward = Number(
+        responseData.carryForwardBalance ?? savedCustomerBalance ?? 0,
+      );
+
+      setSavedCustomerBalance(carryForward);
+
+      const normalized = data.map((entry) => {
+        const kgs = Number(entry.kgs || 0);
+        const rate = Number(entry.rate || 0);
+        const commission = Number(entry.commission || 0);
+        const paid = Number(entry.paid_amount || 0);
+        const luggageAmount = Number(entry.luggage_amount || 0);
+
+        const amount =
+          billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate;
+
         const remaining = Math.max(amount - paid, 0);
 
         return {
-          ...e,
-          entry_date: dayjs(e.entry_date).format("YYYY-MM-DD"),
+          ...entry,
+          entry_date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
           kgs,
           rate,
           commission,
           amount,
           paid_amount: paid,
           remaining,
-          bags: Number(e.bags || 0),
-          item_name: e.item_name || "",
-          already_paid: Number(e.already_paid || 0),
+          bags: Number(entry.bags || 0),
+          item_name: entry.item_name || "",
+          already_paid: Number(entry.already_paid || 0),
           luggage_amount: luggageAmount,
         };
       });
 
       const blocked = new Set();
-      normalized.forEach((e) => {
-        if (e.remaining === 0) blocked.add(e.entry_date);
+
+      normalized.forEach((entry) => {
+        if (entry.remaining === 0) {
+          blocked.add(entry.entry_date);
+        }
       });
 
-      const totalAmount = normalized.reduce((s, e) => s + e.amount, 0);
-      const totalPaid = normalized.reduce((s, e) => s + Math.min(e.paid_amount, e.amount), 0);
-      const remainingOutside = Math.max(totalAmount - totalPaid, 0);
+      const totalAmount = normalized.reduce(
+        (sum, entry) => sum + entry.amount,
+        0,
+      );
 
-      const unpaidEntries = normalized.filter((e) => e.remaining > 0);
-      const defaultSelected = new Set(unpaidEntries.map((e) => e.id));
+      const totalPaid = normalized.reduce(
+        (sum, entry) => sum + Math.min(entry.paid_amount, entry.amount),
+        0,
+      );
 
-      const totalBagsUnpaid = unpaidEntries.reduce((s, e) => s + Number(e.bags || 0), 0);
-      const totalAlreadyPaidUnpaid = unpaidEntries.reduce((s, e) => s + Number(e.already_paid || 0), 0);
-      const totalLuggageUnpaid = unpaidEntries.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
+      const totalRemaining = normalized.reduce(
+        (sum, entry) => sum + entry.remaining,
+        0,
+      );
+
+      const unpaidEntries = normalized.filter((entry) => entry.remaining > 0);
+
+      const defaultSelected = new Set(unpaidEntries.map((entry) => entry.id));
+
+      const totalBagsUnpaid = unpaidEntries.reduce(
+        (sum, entry) => sum + Number(entry.bags || 0),
+        0,
+      );
+
+      const totalAlreadyPaidUnpaid = unpaidEntries.reduce(
+        (sum, entry) => sum + Number(entry.already_paid || 0),
+        0,
+      );
+
+      const totalLuggageUnpaid = unpaidEntries.reduce(
+        (sum, entry) => sum + Number(entry.luggage_amount || 0),
+        0,
+      );
 
       setBlockedDates(blocked);
 
       setEntriesData({
         entries: normalized,
-        totals: { totalAmount, totalPaid, remainingOutside },
+        carryForwardBalance: carryForward,
+        totals: {
+          totalAmount,
+          totalPaid,
+          totalRemaining,
+          remainingOutside: Number(responseData.totals?.remainingOutside || 0),
+          totalOutstanding: Number((carryForward + totalRemaining).toFixed(2)),
+        },
       });
 
       setScheduledEntries(normalized);
       setSelectedUnpaidIds(defaultSelected);
+
       setBagCount(totalBagsUnpaid);
       setAlreadyPaid(totalAlreadyPaidUnpaid);
       setLuggageTotal(totalLuggageUnpaid);
-      setCommissionAmount(0);
 
-      const remainingSelected = unpaidEntries.reduce((s, e) => s + e.remaining, 0);
-      const initialPayable = computeFinalPayable(remainingSelected, 0, 0, totalAlreadyPaidUnpaid, totalLuggageUnpaid);
-      setPayAmount(initialPayable);
-    } catch (err) {
-      console.error("❌ Fetch entries error:", err);
-      toast.error("Error fetching entries");
+      setCommissionAmount(0);
+      setPayableAfterCommission(0);
+      setBagTotal(0);
+
+      const initialPayable = computeFinalPayable(
+        totalRemaining,
+        0,
+        0,
+        totalAlreadyPaidUnpaid,
+        totalLuggageUnpaid,
+      );
+
+      setPayAmount(Number((carryForward + initialPayable).toFixed(2)));
+    } catch (error) {
+      console.error("Error fetching entries:", error);
+      toast.error(error?.response?.data?.message || "Error fetching entries");
     } finally {
       setLoading(false);
     }
   };
 
-  /* --------------------- Fetch History ------------------------ */
-  const fetchHistory = async (cid) => {
+  /* --------------------- Fetch Payment History --------------------- */
+
+  const fetchHistory = async (customer) => {
+    if (!customer) {
+      setHistory([]);
+      return;
+    }
+
     try {
-      const res = await getPaymentHistory(cid);
-      setHistory(res.data || []);
-    } catch (err) {
-      console.error("❌ History error:", err);
+      const response = await getPaymentHistory(customer);
+      setHistory(response.data || []);
+    } catch (error) {
+      console.error("Payment history error:", error);
     }
   };
 
-  /* --------------------- Auto-Recalculate when selection changes ------------------------ */
-  React.useEffect(() => {
-    if (!entriesData.entries?.length) return;
+  /* --------------------- Recalculate on Selection Changes --------------------- */
 
-    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
+  useEffect(() => {
+    const unpaidSelected = entriesData.entries.filter(
+      (entry) => entry.remaining > 0 && selectedUnpaidIds.has(entry.id),
+    );
 
-    const autoBags = unpaidSelected.reduce((s, e) => s + Number(e.bags || 0), 0);
-    const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
-    const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
-    const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
+    const autoBags = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.bags || 0),
+      0,
+    );
+
+    const autoAlready = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.already_paid || 0),
+      0,
+    );
+
+    const autoLuggage = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.luggage_amount || 0),
+      0,
+    );
+
+    const remainingSelected = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.remaining || 0),
+      0,
+    );
 
     setBagCount(autoBags);
     setAlreadyPaid(autoAlready);
@@ -222,169 +398,297 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     const bagsTotal = autoBags * Number(bagAmountPer || 0);
     setBagTotal(Number(bagsTotal.toFixed(2)));
 
-    const final = computeFinalPayable(remainingSelected, commissionAmount, bagsTotal, autoAlready, autoLuggage);
-    setPayAmount(final);
+    const final = computeFinalPayable(
+      remainingSelected,
+      commissionAmount,
+      bagsTotal,
+      autoAlready,
+      autoLuggage,
+    );
+
+    setPayAmount(Number((carryForwardBalance + final).toFixed(2)));
   }, [
+    carryForwardBalance,
     selectedUnpaidIds,
     entriesData.entries,
     bagAmountPer,
     commissionAmount,
-    entriesData.totals.remainingOutside,
     billingMode,
     computeFinalPayable,
   ]);
 
-  /* --------------------- Remaining helpers (commission, bags, toggle selection, pay) ------------------------ */
+  /* --------------------- Commission Calculation --------------------- */
 
   const handleCommissionLoad = () => {
-    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
-    const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
+    const unpaidSelected = entriesData.entries.filter(
+      (entry) => entry.remaining > 0 && selectedUnpaidIds.has(entry.id),
+    );
+
+    const remainingSelected = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.remaining || 0),
+      0,
+    );
 
     const percent = Number(commissionPercent || 0);
-    if (percent < 0 || percent > 100) return toast.error("Enter valid commission %");
 
-    const commissionValue = Math.round((remainingSelected * percent) / 100);
+    if (percent < 0 || percent > 100) {
+      return toast.error("Enter a valid commission percentage");
+    }
+
+    const commissionValue = Number(
+      ((remainingSelected * percent) / 100).toFixed(2),
+    );
+
     const payable = Math.max(remainingSelected - commissionValue, 0);
 
     setCommissionAmount(commissionValue);
     setPayableAfterCommission(payable);
 
-    const autoBags = unpaidSelected.reduce((s, e) => s + Number(e.bags || 0), 0);
-    const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
-    const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
+    const autoBags = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.bags || 0),
+      0,
+    );
+
+    const autoAlready = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.already_paid || 0),
+      0,
+    );
+
+    const autoLuggage = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.luggage_amount || 0),
+      0,
+    );
+
     const bagsTotal = autoBags * Number(bagAmountPer || 0);
 
-    const final = computeFinalPayable(remainingSelected, commissionValue, bagsTotal, autoAlready, autoLuggage);
-    setPayAmount(final);
+    setBagCount(autoBags);
+    setAlreadyPaid(autoAlready);
+    setLuggageTotal(autoLuggage);
+    setBagTotal(Number(bagsTotal.toFixed(2)));
+
+    const final = computeFinalPayable(
+      remainingSelected,
+      commissionValue,
+      bagsTotal,
+      autoAlready,
+      autoLuggage,
+    );
+
+    setPayAmount(Number((carryForwardBalance + final).toFixed(2)));
   };
+
+  /* --------------------- Bag Calculation --------------------- */
 
   const handleBagLoad = () => {
-    const bagsTotal = Number(bagCount) * Number(bagAmountPer || 0);
-    const bagsTotalRounded = Number(bagsTotal.toFixed(2));
-    setBagTotal(bagsTotalRounded);
+    const bagsTotal = Number(
+      (Number(bagCount) * Number(bagAmountPer || 0)).toFixed(2),
+    );
 
-    const unpaidSelected = entriesData.entries.filter((e) => e.remaining > 0 && selectedUnpaidIds.has(e.id));
-    const remainingSelected = unpaidSelected.reduce((s, e) => s + Number(e.remaining || 0), 0);
-    const autoAlready = unpaidSelected.reduce((s, e) => s + Number(e.already_paid || 0), 0);
-    const autoLuggage = unpaidSelected.reduce((s, e) => s + Number(e.luggage_amount || 0), 0);
+    setBagTotal(bagsTotal);
 
-    const final = computeFinalPayable(remainingSelected, commissionAmount, bagsTotalRounded, autoAlready, autoLuggage);
-    setPayAmount(final);
+    const unpaidSelected = entriesData.entries.filter(
+      (entry) => entry.remaining > 0 && selectedUnpaidIds.has(entry.id),
+    );
+
+    const remainingSelected = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.remaining || 0),
+      0,
+    );
+
+    const autoAlready = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.already_paid || 0),
+      0,
+    );
+
+    const autoLuggage = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.luggage_amount || 0),
+      0,
+    );
+
+    const final = computeFinalPayable(
+      remainingSelected,
+      commissionAmount,
+      bagsTotal,
+      autoAlready,
+      autoLuggage,
+    );
+
+    setPayAmount(Number((carryForwardBalance + final).toFixed(2)));
   };
 
+  /* --------------------- Entry Selection --------------------- */
+
   const toggleUnpaidSelection = (id) => {
-    setSelectedUnpaidIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+    setSelectedUnpaidIds((previous) => {
+      const next = new Set(previous);
+
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+
       return next;
     });
   };
 
   const selectAllUnpaid = () => {
-    const all = entriesData.entries.filter((e) => e.remaining > 0).map((e) => e.id);
+    const all = entriesData.entries
+      .filter((entry) => entry.remaining > 0)
+      .map((entry) => entry.id);
+
     setSelectedUnpaidIds(new Set(all));
   };
 
-  const clearAllUnpaid = () => setSelectedUnpaidIds(new Set());
+  const clearAllUnpaid = () => {
+    setSelectedUnpaidIds(new Set());
+  };
+
+  /* --------------------- Process Payment --------------------- */
 
   const handlePay = async () => {
-  if (!customerId) return toast.warn("Select customer");
-  if (!fromDate || !toDate) return toast.warn("Select range");
-  if (Number(payAmount) <= 0) return toast.error("Invalid payment value");
-
-  const unpaidSelected = entriesData.entries.filter(
-    (e) => e.remaining > 0 && selectedUnpaidIds.has(e.id)
-  );
-  if (!unpaidSelected.length) return toast.info("No unpaid entries selected.");
-
-  try {
-    setLoading(true);
-
-    const payload = {
-      customerId: Number(customerId),
-      amount: Number(payAmount),
-      paymentMode: mode,
-      fromDate: toISODate(fromDate),
-      toDate: toISODate(toDate),
-      billingType: billingMode,
-      meta: {
-        commissionPercent: Number(commissionPercent || 0),
-        commissionAmount: Number(commissionAmount || 0),
-        bagCount: Number(bagCount || 0),
-        bagAmountPer: Number(bagAmountPer || 0),
-        bagTotal: Number(bagTotal || 0),
-        alreadyPaid,
-        luggageTotal,
-        includedEntryIds: Array.from(selectedUnpaidIds),
-      },
-    };
-
-    // 1️⃣ Make payment
-    await makePayment(payload);
-
-    // 2️⃣ Mark entries as fully paid
-    for (const entry of unpaidSelected) {
-      const upd = {
-        customerId: entry.customer_id,
-        entry_date: dayjs(entry.entry_date).format("YYYY-MM-DD"),
-        kgs: entry.kgs,
-        rate: entry.rate,
-        commission: entry.commission,
-        item_name: entry.item_name,
-        bags: entry.bags,
-        luggage_amount: entry.luggage_amount,
-        paid_amount: entry.amount,
-        remaining: 0,
-      };
-      await updateEntry(entry.id, upd);
+    if (!customerId) {
+      return toast.warn("Select customer");
     }
 
-    // 3️⃣ Reload backend data (still needed for PDF + history)
-    await loadCustomers(billingMode);
-    await fetchHistory(customerId);
+    const hasDateRange = Boolean(fromDate && toDate);
 
-    // 4️⃣ Success feedback
-    toast.success("Payment successful!");
+    if (!hasDateRange && carryForwardBalance <= 0) {
+      return toast.warn(
+        "Select a date range to load entries, or choose a customer with an outstanding balance.",
+      );
+    }
 
-    // 5️⃣ Generate receipt
-    generatePDF();
+    if (hasDateRange && dayjs(fromDate).isAfter(dayjs(toDate))) {
+      return toast.warn("From date cannot be after To date");
+    }
 
-    // 6️⃣ HARD REFRESH (PREVENT DUPLICATE PAYMENTS)
-    setTimeout(() => {
-      window.location.reload();
-    }, 1200); // slight delay so user sees success toast
+    const paymentAmount = Number(payAmount);
 
-  } catch (err) {
-    console.error("❌ Payment error:", err);
-    toast.error("Error processing payment");
-  } finally {
-    setLoading(false);
-  }
-};
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      return toast.error("Enter a valid payment amount");
+    }
 
+    const unpaidSelected = entriesData.entries.filter(
+      (entry) => Number(entry.remaining) > 0 && selectedUnpaidIds.has(entry.id),
+    );
 
-  const generatePDF = (historyRecord = null, forPrint = false) => {
+    const currentSelectedOutstanding = unpaidSelected.reduce(
+      (total, entry) => total + Number(entry.remaining || 0),
+      0,
+    );
+
+    const previousBalance = Number(carryForwardBalance || 0);
+
+    const maximumPayment = Number(
+      (previousBalance + currentSelectedOutstanding).toFixed(2),
+    );
+
+    if (maximumPayment <= 0) {
+      return toast.info("There is no outstanding balance to pay.");
+    }
+
+    if (paymentAmount > maximumPayment + 0.005) {
+      return toast.error(
+        `Payment cannot exceed the outstanding balance of ₹${maximumPayment.toFixed(2)}.`,
+      );
+    }
+
+    try {
+      setLoading(true);
+
+      const payload = {
+        customerId: Number(customerId),
+        amount: paymentAmount,
+        paymentMode: mode,
+        fromDate: toISODate(fromDate) || null,
+        toDate: toISODate(toDate) || null,
+        billingType: billingMode,
+        meta: {
+          commissionPercent: Number(commissionPercent || 0),
+          commissionAmount: Number(commissionAmount || 0),
+          bagCount: Number(bagCount || 0),
+          bagAmountPer: Number(bagAmountPer || 0),
+          bagTotal: Number(bagTotal || 0),
+          alreadyPaid: Number(alreadyPaid || 0),
+          luggageTotal: Number(luggageTotal || 0),
+          includedEntryIds: unpaidSelected.map((entry) => entry.id),
+        },
+      };
+
+      const paymentResponse = await makePayment(payload);
+      const paymentResult = paymentResponse.data || {};
+
+      toast.success("Payment successful!");
+
+      generatePDF(null, false, paymentResult);
+
+      await Promise.all([
+        loadCustomers(billingMode),
+        fetchHistory(customerId),
+        getCustomerBalance(customerId, billingMode).then((balanceResponse) => {
+          const balanceData = balanceResponse?.data ?? balanceResponse;
+
+          const balance = Number(
+            balanceData?.balance ??
+              balanceData?.currentBalance ??
+              balanceData?.carryForwardBalance ??
+              0,
+          );
+
+          setSavedCustomerBalance(Number.isFinite(balance) ? balance : 0);
+          setBalanceError("");
+        }),
+        ...(hasDateRange ? [fetchEntries()] : []),
+      ]);
+    } catch (error) {
+      console.error("Payment error:", error);
+
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Error processing payment",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* --------------------- Generate PDF Receipt --------------------- */
+
+  const generatePDF = (
+    historyRecord = null,
+    forPrint = false,
+    paymentResult = null,
+  ) => {
     const doc = new jsPDF();
 
-    const cust = customers.find((c) => c.id === Number(customerId));
-    const cname = cust?.name || "";
-    const cphone = cust?.phone || cust?.ph_number || "";
+    const customer = customers.find((item) => item.id === Number(customerId));
+
+    const customerName = customer?.name || "";
+    const customerPhone = customer?.phone || customer?.ph_number || "";
 
     doc.setFontSize(16);
     doc.text("Payment Receipt", 14, 20);
 
     doc.setFontSize(12);
-    doc.text(`Customer: ${cname}`, 14, 30);
-    doc.text(`Phone: ${cphone}`, 14, 36);
+    doc.text(`Customer: ${customerName}`, 14, 30);
+    doc.text(`Phone: ${customerPhone}`, 14, 36);
 
     if (historyRecord) {
       doc.text(
         `Period: ${formatDateDDMMYYYY(historyRecord.from_date)} → ${formatDateDDMMYYYY(historyRecord.to_date)}`,
         14,
-        42
+        42,
       );
+
       doc.text(`Mode: ${historyRecord.mode}`, 14, 48);
-      doc.text(`Amount Paid: ₹${historyRecord.amount}`, 14, 56);
+
+      doc.text(
+        `Amount Paid: ₹${Number(historyRecord.amount || 0).toFixed(2)}`,
+        14,
+        56,
+      );
 
       if (forPrint) {
         doc.autoPrint();
@@ -392,59 +696,126 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         return;
       }
 
-      doc.save(`Payment_${cname}_${historyRecord.id}.pdf`);
+      doc.save(`Payment_${customerName}_${historyRecord.id}.pdf`);
       return;
     }
 
-    doc.text(`Period: ${formatDateDDMMYYYY(fromDate)} → ${formatDateDDMMYYYY(toDate)}`, 14, 42);
+    doc.text(
+      `Period: ${formatDateDDMMYYYY(fromDate)} → ${formatDateDDMMYYYY(toDate)}`,
+      14,
+      42,
+    );
+
     doc.text(`Mode: ${mode}`, 14, 48);
 
-    const rows = entriesData.entries.map((e) => [
-      formatDateDDMMYYYY(e.entry_date),
-      e.item_name || "-",
-      e.kgs,
-      e.rate,
-      billingMode === "luggage" ? "-" : e.commission,
-      billingMode === "luggage" ? `₹${Number(e.luggage_amount || 0).toFixed(2)}` : e.bags,
-      `₹${e.amount.toFixed(2)}`,
-      `₹${e.paid_amount.toFixed(2)}`,
-      `₹${e.remaining.toFixed(2)}`,
+    const rows = entriesData.entries.map((entry) => [
+      formatDateDDMMYYYY(entry.entry_date),
+      entry.item_name || "-",
+      String(entry.kgs),
+      `₹${Number(entry.rate || 0).toFixed(2)}`,
+      billingMode === "luggage" ? "-" : String(entry.commission || 0),
+      billingMode === "luggage"
+        ? `₹${Number(entry.luggage_amount || 0).toFixed(2)}`
+        : String(entry.bags || 0),
+      `₹${Number(entry.amount || 0).toFixed(2)}`,
+      `₹${Number(entry.paid_amount || 0).toFixed(2)}`,
+      `₹${Number(entry.remaining || 0).toFixed(2)}`,
     ]);
 
     autoTable(doc, {
       startY: 55,
-      head: [["Date", "Item", "Kgs", "Rate", "Comm", "Bags", "Amount", "Paid", "Remaining"]],
+      head: [
+        [
+          "Date",
+          "Item",
+          "Kgs",
+          "Rate",
+          "Comm",
+          "Bags/Luggage",
+          "Amount",
+          "Paid",
+          "Remaining",
+        ],
+      ],
       body: rows,
-      styles: { fontSize: 10 },
+      styles: { fontSize: 8 },
+      headStyles: { fontSize: 8 },
     });
 
-    let y = doc.lastAutoTable.finalY + 10;
+    let y = (doc.lastAutoTable?.finalY || 55) + 10;
 
-    doc.text(`Remaining Total: ₹${entriesData.totals.remainingOutside}`, 14, y);
-    y += 10;
+    const previousBalance = Number(
+      paymentResult?.previousBalance ?? carryForwardBalance ?? 0,
+    );
+
+    const currentOutstanding = Number(
+      paymentResult?.currentBillAmount ?? selectedOutstanding,
+    );
+
+    const totalBeforePayment = Number(
+      paymentResult?.totalOutstanding ?? previousBalance + currentOutstanding,
+    );
+
+    const paymentReceived = Number(
+      paymentResult?.paymentReceived ?? paymentResult?.amount ?? payAmount,
+    );
+
+    const closingBalance = Number(
+      paymentResult?.closingBalance ??
+        paymentResult?.outstandingAfterPayment ??
+        Math.max(0, totalBeforePayment - paymentReceived),
+    );
+
+    doc.setFontSize(10);
+
+    doc.text(
+      `Previous Carry-Forward Balance: ₹${previousBalance.toFixed(2)}`,
+      14,
+      y,
+    );
+    y += 7;
+
+    doc.text(
+      `Selected Entries Outstanding: ₹${currentOutstanding.toFixed(2)}`,
+      14,
+      y,
+    );
+    y += 7;
+
+    doc.text(
+      `Total Outstanding Before Payment: ₹${totalBeforePayment.toFixed(2)}`,
+      14,
+      y,
+    );
+    y += 7;
 
     if (commissionAmount > 0) {
-      doc.text(`Commission: -₹${commissionAmount}`, 14, y);
-      y += 8;
+      doc.text(`Commission: -₹${Number(commissionAmount).toFixed(2)}`, 14, y);
+      y += 7;
     }
 
     if (bagTotal > 0 && billingMode !== "luggage") {
-      doc.text(`Bags (${bagCount} × ₹${bagAmountPer}): +₹${bagTotal}`, 14, y);
-      y += 8;
+      doc.text(`Bag Charges: +₹${Number(bagTotal).toFixed(2)}`, 14, y);
+      y += 7;
     }
 
     if (luggageTotal > 0 && billingMode === "luggage") {
-      doc.text(`Luggage Total: +₹${luggageTotal}`, 14, y);
-      y += 8;
+      doc.text(`Luggage Total: +₹${Number(luggageTotal).toFixed(2)}`, 14, y);
+      y += 7;
     }
 
-    if (alreadyPaid > 0) {
-      doc.text(`Already Paid: -₹${alreadyPaid}`, 14, y);
-      y += 8;
-    }
+    y += 2;
+
+    doc.setFontSize(12);
+    doc.text(`Payment Received: ₹${paymentReceived.toFixed(2)}`, 14, y);
+    y += 9;
 
     doc.setFontSize(14);
-    doc.text(`Final Payable: ₹${payAmount}`, 14, y + 10);
+    doc.text(
+      `Remaining Customer Balance: ₹${closingBalance.toFixed(2)}`,
+      14,
+      y,
+    );
 
     if (forPrint) {
       doc.autoPrint();
@@ -452,53 +823,103 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       return;
     }
 
-    doc.save(`Payment_${cname}_${Date.now()}.pdf`);
+    doc.save(`Payment_${customerName}_${Date.now()}.pdf`);
   };
 
   const isDateBlocked = (date) => blockedDates.has(date);
 
+  /* --------------------- Page UI --------------------- */
+
   return (
     <div className="col">
-      {/* --- SELECTION --- */}
+      {/* Customer and date selection */}
       <div className="card">
-        <h2>💰 Payments Page ({billingMode === "luggage" ? "Luggage" : "Farmer"})</h2>
+        <h2>
+          💰 Payments Page ({billingMode === "luggage" ? "Luggage" : "Farmer"})
+        </h2>
 
         <div className="form-row">
           <label>Customer:</label>
+
           <select
             className="input"
             value={customerId}
-            onChange={(e) => {
-              setCustomerId(e.target.value);
-              const c = customers.find((x) => x.id === Number(e.target.value));
-              onSelectCustomer?.(c);
-              fetchHistory(Number(e.target.value));
+            onChange={(event) => {
+              const selectedId = event.target.value;
+              const selected = customers.find(
+                (item) => item.id === Number(selectedId),
+              );
+
+              setCustomerId(selectedId);
+              onSelectCustomer?.(selected);
+
+              setSavedCustomerBalance(0);
+              setBalanceError("");
+
+              setEntriesData({
+                entries: [],
+                carryForwardBalance: 0,
+                totals: {
+                  totalAmount: 0,
+                  totalPaid: 0,
+                  totalRemaining: 0,
+                  remainingOutside: 0,
+                  totalOutstanding: 0,
+                },
+              });
+
+              setScheduledEntries([]);
+              setSelectedUnpaidIds(new Set());
+              setPayAmount(0);
+              setCommissionPercent("");
+              setCommissionAmount(0);
+              setPayableAfterCommission(0);
+              setBagCount(0);
+              setBagAmountPer(0);
+              setBagTotal(0);
+              setAlreadyPaid(0);
+              setLuggageTotal(0);
+
+              if (selectedId) {
+                fetchHistory(Number(selectedId));
+              } else {
+                setHistory([]);
+              }
             }}
           >
             <option value="">-- select customer --</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} • #{c.serial}
+
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.name} • #{customer.serial}
               </option>
             ))}
           </select>
 
           <label>From:</label>
+
           <input
             className="input"
             type="date"
             value={fromDate}
-            onChange={(e) => {
-              if (isDateBlocked(e.target.value)) {
+            onChange={(event) => {
+              if (isDateBlocked(event.target.value)) {
                 toast.info("This date is already fully paid.");
                 return;
               }
-              setFromDate(e.target.value);
+
+              setFromDate(event.target.value);
             }}
           />
 
           <label>To:</label>
-          <input className="input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+
+          <input
+            className="input"
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+          />
 
           <button className="btn" onClick={fetchEntries} disabled={loading}>
             {loading ? "Loading..." : "Load Entries"}
@@ -506,20 +927,22 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         </div>
       </div>
 
-      {/* ... rest unchanged (entries table, commission, bag section, final payment, history) ... */}
-
-      {/* You already have the rest of the UI in your existing file — kept above in this component. */}
-      {/* For brevity here I've kept the remainder from your existing file (entries table, commission, bags, history). */}
-
-      {/* --- ENTRIES TABLE --- */}
+      {/* Entries table */}
       {scheduledEntries.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>📋 Entries in Scheduled Range</h3>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
             <button className="btn" onClick={selectAllUnpaid}>
               Select All Unpaid
             </button>
+
             <button className="btn ghost" onClick={clearAllUnpaid}>
               Clear Selection
             </button>
@@ -533,41 +956,57 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                 <th>Item</th>
                 <th>Kgs</th>
                 <th>Rate</th>
-                {billingMode === "luggage" ? <th>Luggage</th> : <><th>Comm</th><th>Bags</th></>}
+
+                {billingMode === "luggage" ? (
+                  <th>Luggage</th>
+                ) : (
+                  <>
+                    <th>Comm</th>
+                    <th>Bags</th>
+                  </>
+                )}
+
                 <th>Amount</th>
                 <th>Paid</th>
                 <th>Remaining</th>
               </tr>
             </thead>
+
             <tbody>
-              {scheduledEntries.map((e) => {
-                const isUnpaid = e.remaining > 0;
+              {scheduledEntries.map((entry) => {
+                const isUnpaid = entry.remaining > 0;
+
                 return (
-                  <tr key={e.id}>
+                  <tr key={entry.id}>
                     <td>
                       {isUnpaid ? (
-                        <input type="checkbox" checked={selectedUnpaidIds.has(e.id)} onChange={() => toggleUnpaidSelection(e.id)} />
+                        <input
+                          type="checkbox"
+                          checked={selectedUnpaidIds.has(entry.id)}
+                          onChange={() => toggleUnpaidSelection(entry.id)}
+                        />
                       ) : (
                         <input type="checkbox" disabled />
                       )}
                     </td>
-                    <td>{formatDateDDMMYYYY(e.entry_date)}</td>
-                    <td>{e.item_name || "-"}</td>
-                    <td>{e.kgs}</td>
-                    <td>{e.rate}</td>
+
+                    <td>{formatDateDDMMYYYY(entry.entry_date)}</td>
+                    <td>{entry.item_name || "-"}</td>
+                    <td>{entry.kgs}</td>
+                    <td>{entry.rate}</td>
 
                     {billingMode === "luggage" ? (
-                      <td>₹{Number(e.luggage_amount || 0).toFixed(2)}</td>
+                      <td>₹{Number(entry.luggage_amount || 0).toFixed(2)}</td>
                     ) : (
                       <>
-                        <td>{e.commission}</td>
-                        <td>{e.bags}</td>
+                        <td>{entry.commission}</td>
+                        <td>{entry.bags}</td>
                       </>
                     )}
 
-                    <td>₹{e.amount.toFixed(2)}</td>
-                    <td>₹{e.paid_amount.toFixed(2)}</td>
-                    <td>₹{e.remaining.toFixed(2)}</td>
+                    <td>₹{entry.amount.toFixed(2)}</td>
+                    <td>₹{entry.paid_amount.toFixed(2)}</td>
+                    <td>₹{entry.remaining.toFixed(2)}</td>
                   </tr>
                 );
               })}
@@ -576,32 +1015,44 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         </div>
       )}
 
-      {/* --- COMMISSION (hide in luggage mode) --- */}
+      {/* Commission */}
       {billingMode !== "luggage" && (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>🏦 Commission</h3>
+
           <div style={{ display: "flex", gap: 12 }}>
             <input
               className="input"
               placeholder="Commission %"
               type="number"
+              min="0"
+              max="100"
               value={commissionPercent}
-              onChange={(e) => setCommissionPercent(e.target.value)}
+              onChange={(event) => setCommissionPercent(event.target.value)}
             />
+
             <button className="btn" onClick={handleCommissionLoad}>
               Apply
             </button>
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <div>Remaining: ₹{entriesData.totals.remainingOutside}</div>
-            <div>Commission Amount: ₹{commissionAmount}</div>
-            <div>Payable After Commission: ₹{payableAfterCommission}</div>
+            <div>
+              Remaining: ₹
+              {Number(entriesData.totals.remainingOutside || 0).toFixed(2)}
+            </div>
+
+            <div>Commission Amount: ₹{Number(commissionAmount).toFixed(2)}</div>
+
+            <div>
+              Payable After Commission: ₹
+              {Number(payableAfterCommission).toFixed(2)}
+            </div>
           </div>
         </div>
       )}
 
-      {/* --- BAG SECTION (hide in luggage mode) --- */}
+      {/* Bag charges */}
       {billingMode !== "luggage" && (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>🧺 Bag Charges</h3>
@@ -609,12 +1060,26 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           <div style={{ display: "flex", gap: 12 }}>
             <div>
               <label>Bags</label>
-              <input className="input" type="number" value={bagCount} onChange={(e) => setBagCount(Number(e.target.value))} />
+              <input
+                className="input"
+                type="number"
+                min="0"
+                value={bagCount}
+                onChange={(event) => setBagCount(Number(event.target.value))}
+              />
             </div>
 
             <div>
               <label>Amount per Bag</label>
-              <input className="input" type="number" value={bagAmountPer} onChange={(e) => setBagAmountPer(Number(e.target.value))} />
+              <input
+                className="input"
+                type="number"
+                min="0"
+                value={bagAmountPer}
+                onChange={(event) =>
+                  setBagAmountPer(Number(event.target.value))
+                }
+              />
             </div>
 
             <button className="btn" onClick={handleBagLoad}>
@@ -622,30 +1087,106 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
             </button>
           </div>
 
-          <div style={{ marginTop: 10 }}>Bag Total: ₹{bagTotal}</div>
+          <div style={{ marginTop: 10 }}>
+            Bag Total: ₹{Number(bagTotal).toFixed(2)}
+          </div>
         </div>
       )}
 
-      {/* --- ALREADY PAID --- */}
+      {/* Already paid */}
       <div className="card" style={{ marginTop: 16 }}>
-        <h3>💵 Already Paid (auto from unpaid entries)</h3>
+        <h3>💵 Already Paid (from unpaid entries)</h3>
 
-        <input className="input" type="number" value={alreadyPaid.toFixed(2)} disabled style={{ maxWidth: 220 }} />
+        <input
+          className="input"
+          type="number"
+          value={alreadyPaid.toFixed(2)}
+          disabled
+          style={{ maxWidth: 220 }}
+        />
 
-        <div style={{ fontSize: 13, color: "#777" }}>(Auto-extracted and auto-deducted)</div>
+        <div style={{ fontSize: 13, color: "#777" }}>
+          Automatically extracted from selected unpaid entries.
+        </div>
 
-        {billingMode === "luggage" && <div style={{ marginTop: 8 }}>Luggage Total: ₹{luggageTotal.toFixed(2)}</div>}
+        {billingMode === "luggage" && (
+          <div style={{ marginTop: 8 }}>
+            Luggage Total: ₹{luggageTotal.toFixed(2)}
+          </div>
+        )}
       </div>
 
-      {/* --- FINAL PAYMENT --- */}
+      {/* Customer balance — always immediately above Final Payment */}
+      {customerId ? (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3>Customer Balance Summary</h3>
+
+          {balanceLoading ? (
+            <p>Loading saved customer balance...</p>
+          ) : (
+            <>
+              <div>
+                Previous Carry-Forward Balance: ₹
+                {carryForwardBalance.toFixed(2)}
+              </div>
+
+              <div>
+                Selected Entries Outstanding: ₹{selectedOutstanding.toFixed(2)}
+              </div>
+
+              <div style={{ marginTop: 8, fontWeight: 700 }}>
+                Total Available to Pay: ₹{totalOutstanding.toFixed(2)}
+              </div>
+
+              {balanceError && (
+                <p style={{ color: "#b42318" }}>{balanceError}</p>
+              )}
+
+              {(!fromDate || !toDate) && (
+                <p>
+                  The saved balance is shown without dates. Select a date range
+                  and load entries to include new entries in the payment.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3>Customer Balance Summary</h3>
+          <p>Please select a customer to view their carry-forward balance.</p>
+        </div>
+      )}
+
+      {/* Final payment */}
       <div className="card" style={{ marginTop: 16 }}>
         <h3>Final Payment</h3>
 
-        <div style={{ display: "flex", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
           <label>Payable</label>
-          <input className="input" type="number" value={payAmount} onChange={(e) => setPayAmount(Number(e.target.value))} style={{ maxWidth: 200 }} />
 
-          <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
+          <input
+            className="input"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={payAmount}
+            onChange={(event) => setPayAmount(Number(event.target.value))}
+            style={{ maxWidth: 200 }}
+          />
+
+          <select
+            className="input"
+            value={mode}
+            onChange={(event) => setMode(event.target.value)}
+          >
             <option value="cash">Cash</option>
             <option value="upi">UPI</option>
             <option value="qr">QR</option>
@@ -653,8 +1194,14 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
             <option value="cheque">Cheque</option>
           </select>
 
-          <button className="btn" onClick={handlePay} disabled={loading}>
-            {loading ? "Processing..." : `Pay ₹${payAmount}`}
+          <button
+            className="btn"
+            onClick={handlePay}
+            disabled={loading || balanceLoading}
+          >
+            {loading
+              ? "Processing..."
+              : `Pay ₹${Number(payAmount || 0).toFixed(2)}`}
           </button>
 
           <button className="btn ghost" onClick={() => generatePDF()}>
@@ -663,7 +1210,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         </div>
       </div>
 
-      {/* --- HISTORY --- */}
+      {/* Payment history */}
       <div className="card" style={{ marginTop: 16 }}>
         <h2>📜 Payment History</h2>
 
@@ -678,6 +1225,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
               <th>Print</th>
             </tr>
           </thead>
+
           <tbody>
             {history.length === 0 ? (
               <tr>
@@ -686,21 +1234,33 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
                 </td>
               </tr>
             ) : (
-              history.map((h) => (
-                <tr key={h.id}>
-                  <td>{formatDateDDMMYYYY(h.payment_date)}</td>
-                  <td>₹{h.amount}</td>
-                  <td>{h.mode}</td>
+              history.map((record) => (
+                <tr key={record.id}>
+                  <td>{formatDateDDMMYYYY(record.payment_date)}</td>
+
+                  <td>₹{Number(record.amount || 0).toFixed(2)}</td>
+
+                  <td>{record.mode}</td>
+
                   <td>
-                    {formatDateDDMMYYYY(h.from_date)} → {formatDateDDMMYYYY(h.to_date)}
+                    {formatDateDDMMYYYY(record.from_date)} →{" "}
+                    {formatDateDDMMYYYY(record.to_date)}
                   </td>
+
                   <td>
-                    <button className="btn ghost" onClick={() => generatePDF(h)}>
+                    <button
+                      className="btn ghost"
+                      onClick={() => generatePDF(record)}
+                    >
                       Download
                     </button>
                   </td>
+
                   <td>
-                    <button className="btn ghost" onClick={() => generatePDF(h, true)}>
+                    <button
+                      className="btn ghost"
+                      onClick={() => generatePDF(record, true)}
+                    >
                       Print
                     </button>
                   </td>
