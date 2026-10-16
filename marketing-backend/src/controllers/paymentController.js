@@ -494,7 +494,7 @@ export const makePayment = async (req, res) => {
     const customer = customerResult.rows[0];
 
     // Lock the persistent balance for this transaction.
-    const previousBalance = await getCustomerBalance(
+    const previousBalance = await readCustomerBalance(
       client,
       userId,
       customerId,
