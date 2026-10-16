@@ -255,8 +255,15 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         const remaining = entry.balance_transferred_at
           ? 0
           : Math.max(Number((payableBeforePayment - paid).toFixed(2)), 0);
+        // For a transferred historical row with no individual payment record,
+        // display the payable after the currently entered percentage commission.
+        // This is a display value only; it does not modify recorded payments.
+        const displayCommissionPercent = Math.min(
+          100,
+          Math.max(0, Number(commissionPercent || 0)),
+        );
         const displayedPaid = entry.balance_transferred_at && paid <= 0
-          ? payableBeforePayment
+          ? Number((payableBeforePayment * (1 - displayCommissionPercent / 100)).toFixed(2))
           : paid;
 
         return {
@@ -447,11 +454,9 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       return toast.error("Enter a valid commission percentage");
     }
 
-    const selectedGrossAmount = unpaidSelected.reduce(
-      (sum, entry) => sum + Number(entry.amount || 0),
-      0,
-    );
-    const commissionValue = Number(((selectedGrossAmount * percent) / 100).toFixed(2));
+    // Percentage commission applies to selected outstanding (Remaining),
+    // not the gross Amount column.
+    const commissionValue = Number(((remainingSelected * percent) / 100).toFixed(2));
 
     const payable = Math.max(remainingSelected - commissionValue, 0);
 
