@@ -10,11 +10,21 @@ import dayjs from "dayjs";
 ===================================================== */
 
 const calculateEntryAmount = (entry, billingType) => {
+  // Store/display the gross entry amount. Payment-level commission, already-paid
+  // amounts and bag charges are applied once in makePayment().
   const kgs = Number(entry.kgs || 0);
   const rate = Number(entry.rate || 0);
-  const commission = Number(entry.commission || 0);
+  return Number((kgs * rate).toFixed(2));
+};
 
-  return billingType === "luggage" ? kgs * rate : kgs * rate - commission;
+const money = (value) => Number((Number(value) || 0).toFixed(2));
+
+const calculateEntryOutstanding = (entry, billingType) => {
+  const gross = calculateEntryAmount(entry, billingType);
+  const paid = Number(entry.paid_amount || 0);
+  const alreadyPaid = Number(entry.already_paid || 0);
+  if (entry.balance_transferred_at) return 0;
+  return Math.max(0, gross - paid - alreadyPaid);
 };
 
 const normalizeEntry = (entry, billingType) => ({
@@ -171,9 +181,7 @@ const generateBillPDF = async (
     doc.text(`Phone: ${customer.phone || "-"}`);
 
     doc.text(
-      `Period: ${dayjs(fromDate).format("DD-MM-YYYY")} → ${dayjs(toDate).format(
-        "DD-MM-YYYY",
-      )}`,
+      `Period: ${fromDate ? dayjs(fromDate).format("DD-MM-YYYY") : "Carry-forward only"} → ${toDate ? dayjs(toDate).format("DD-MM-YYYY") : "Carry-forward only"}`,
     );
 
     doc.text(`Payment Mode: ${paymentMode || "-"}`);
@@ -266,153 +274,81 @@ export const getEntriesForPayment = async (req, res) => {
   try {
     const userId = req.user.id;
     const { customerId } = req.params;
-
     let { fromDate, toDate, billingType } = req.query;
-
     billingType = billingType || "farmer";
 
     if (!["farmer", "luggage"].includes(billingType)) {
-      return res.status(400).json({
-        message: "Invalid billing type.",
-      });
+      return res.status(400).json({ message: "Invalid billing type." });
     }
-
     if (!fromDate || !toDate) {
-      return res.status(400).json({
-        message: "Missing date range.",
-      });
+      return res.status(400).json({ message: "Missing date range." });
     }
 
     const customerCheck = await pool.query(
-      `SELECT 1
-       FROM customers
-       WHERE id = $1
-         AND user_id = $2`,
+      `SELECT 1 FROM customers WHERE id = $1 AND user_id = $2`,
       [customerId, userId],
     );
-
     if (customerCheck.rowCount === 0) {
-      return res.status(403).json({
-        message: "Not allowed.",
-      });
+      return res.status(403).json({ message: "Not allowed." });
     }
 
     const from = parseDateQuery(fromDate);
     const to = parseDateQuery(toDate);
-
     to.setHours(23, 59, 59, 999);
-
-    if (
-      Number.isNaN(from.getTime()) ||
-      Number.isNaN(to.getTime()) ||
-      from > to
-    ) {
-      return res.status(400).json({
-        message: "Invalid date range.",
-      });
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+      return res.status(400).json({ message: "Invalid date range." });
     }
 
+    // Include transferred rows so historical entries remain visible on reload.
+    // Their displayed remaining amount is zero, preventing a second transfer.
     const entriesResult = await pool.query(
-      `SELECT
-         id,
-         customer_id,
-         user_id,
-         entry_date,
-         kgs,
-         rate,
-         commission,
-         bags,
-         amount,
-         paid_amount,
-         remaining,
-         already_paid,
-         item_name,
-         luggage_amount,
-         billing_type
+      `SELECT id, customer_id, user_id, entry_date, kgs, rate, commission,
+              bags, amount, paid_amount, remaining, already_paid, item_name,
+              luggage_amount, billing_type, balance_transferred_at
        FROM entries
-       WHERE customer_id = $1
-         AND user_id = $2
-         AND billing_type = $3
+       WHERE customer_id = $1 AND user_id = $2 AND billing_type = $3
          AND entry_date BETWEEN $4 AND $5
-         AND balance_transferred_at IS NULL
        ORDER BY entry_date ASC, id ASC`,
       [customerId, userId, billingType, from, to],
     );
 
     const outsideResult = await pool.query(
-      `SELECT COALESCE(
-         SUM(
-           GREATEST(
-             0,
-             (
-               CASE
-                 WHEN billing_type = 'luggage'
-                   THEN COALESCE(kgs, 0) * COALESCE(rate, 0)
-                 ELSE
-                   COALESCE(kgs, 0) * COALESCE(rate, 0)
-                   - COALESCE(commission, 0)
-               END
-             ) - COALESCE(paid_amount, 0)
-           )
-         ),
-         0
-       ) AS remaining_outside
+      `SELECT COALESCE(SUM(GREATEST(0,
+           (COALESCE(kgs, 0) * COALESCE(rate, 0))
+           - COALESCE(paid_amount, 0) - COALESCE(already_paid, 0)
+         )), 0) AS remaining_outside
        FROM entries
-       WHERE customer_id = $1
-         AND user_id = $2
-         AND billing_type = $3
+       WHERE customer_id = $1 AND user_id = $2 AND billing_type = $3
          AND (entry_date < $4 OR entry_date > $5)
          AND balance_transferred_at IS NULL`,
       [customerId, userId, billingType, from, to],
     );
 
-    const entries = entriesResult.rows.map((entry) =>
-      normalizeEntry(entry, billingType),
-    );
+    const entries = entriesResult.rows.map((entry) => {
+      const normalized = normalizeEntry(entry, billingType);
+      const remaining = calculateEntryOutstanding(entry, billingType);
+      return { ...normalized, amount: calculateEntryAmount(entry, billingType), remaining };
+    });
 
-    const totalAmount = entries.reduce((sum, entry) => sum + entry.amount, 0);
-
-    const totalPaid = entries.reduce(
-      (sum, entry) => sum + entry.paid_amount,
-      0,
-    );
-
-    const totalRemaining = entries.reduce(
-      (sum, entry) =>
-        sum +
-        Math.max(
-          0,
-          calculateEntryAmount(entry, billingType) - entry.paid_amount,
-        ),
-      0,
-    );
-
-    const carryForwardBalance = await readCustomerBalance(
-      pool,
-      userId,
-      customerId,
-      billingType,
-    );
+    const totalAmount = money(entries.reduce((sum, entry) => sum + entry.amount, 0));
+    const totalPaid = money(entries.reduce((sum, entry) => sum + entry.paid_amount, 0));
+    const totalRemaining = money(entries.reduce((sum, entry) => sum + entry.remaining, 0));
+    const carryForwardBalance = await readCustomerBalance(pool, userId, Number(customerId), billingType);
 
     return res.json({
       entries,
-      carryForwardBalance,
+      carryForwardBalance: money(carryForwardBalance),
       totals: {
         totalAmount,
         totalPaid,
         totalRemaining,
-        remainingOutside: Number(outsideResult.rows[0]?.remaining_outside || 0),
-        totalOutstanding: Number(
-          (carryForwardBalance + totalRemaining).toFixed(2),
-        ),
+        remainingOutside: money(outsideResult.rows[0]?.remaining_outside || 0),
+        totalOutstanding: money(carryForwardBalance + totalRemaining),
       },
     });
   } catch (error) {
     console.error("getEntriesForPayment error:", error);
-
-    return res.status(500).json({
-      message: "Server error while loading payment entries.",
-    });
+    return res.status(500).json({ message: "Server error while loading payment entries." });
   }
 };
 
@@ -426,410 +362,152 @@ export const makePayment = async (req, res) => {
 
   try {
     client = await pool.connect();
-
     const userId = req.user.id;
-
-    const { customerId, amount, paymentMode, fromDate, toDate, meta } =
-      req.body;
-
+    const { customerId, amount, paymentMode, fromDate, toDate, meta } = req.body;
     const billingType = meta?.billingType || req.body.billingType || "farmer";
-
     const paymentAmount = Number(amount);
+    const hasFromDate = Boolean(fromDate);
+    const hasToDate = Boolean(toDate);
+    const hasDateRange = hasFromDate && hasToDate;
 
-    if (
-      !customerId ||
-      !Number.isInteger(Number(customerId)) ||
-      Number(customerId) <= 0 ||
-      !Number.isFinite(paymentAmount) ||
-      paymentAmount <= 0 ||
-      !fromDate ||
-      !toDate
-    ) {
-      return res.status(400).json({
-        message: "Invalid payment fields or amount.",
-      });
+    if (!customerId || !Number.isInteger(Number(customerId)) || Number(customerId) <= 0 ||
+        !Number.isFinite(paymentAmount) || paymentAmount <= 0 || hasFromDate !== hasToDate) {
+      return res.status(400).json({ message: "Invalid payment fields or amount." });
     }
-
     if (!["farmer", "luggage"].includes(billingType)) {
-      return res.status(400).json({
-        message: "Invalid billing type.",
-      });
+      return res.status(400).json({ message: "Invalid billing type." });
     }
 
-    const from = parseDateQuery(fromDate);
-    const to = parseDateQuery(toDate);
+    let from = null;
+    let to = null;
+    if (hasDateRange) {
+      from = parseDateQuery(fromDate);
+      to = parseDateQuery(toDate);
+      to.setHours(23, 59, 59, 999);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+        return res.status(400).json({ message: "Invalid payment date range." });
+      }
+    }
 
-    to.setHours(23, 59, 59, 999);
-
-    if (
-      Number.isNaN(from.getTime()) ||
-      Number.isNaN(to.getTime()) ||
-      from > to
-    ) {
-      return res.status(400).json({
-        message: "Invalid payment date range.",
-      });
+    const commissionAmount = Math.max(0, Number(meta?.commissionAmount || 0));
+    const bagTotal = billingType === "luggage" ? 0 : Math.max(0, Number(meta?.bagTotal || 0));
+    const luggageTotal = billingType === "luggage" ? Math.max(0, Number(meta?.luggageTotal || 0)) : 0;
+    const requestedIds = Array.isArray(meta?.includedEntryIds)
+      ? [...new Set(meta.includedEntryIds.map(Number))]
+      : [];
+    if (requestedIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+      return res.status(400).json({ message: "Invalid selected entry IDs." });
+    }
+    if (requestedIds.length && !hasDateRange) {
+      return res.status(400).json({ message: "A date range is required when paying selected entries." });
     }
 
     await client.query("BEGIN");
     transactionStarted = true;
 
     const customerResult = await client.query(
-      `SELECT id, name, phone
-       FROM customers
-       WHERE id = $1
-         AND user_id = $2`,
+      `SELECT id, name, phone FROM customers WHERE id = $1 AND user_id = $2`,
       [customerId, userId],
     );
-
     if (customerResult.rowCount === 0) {
       await client.query("ROLLBACK");
       transactionStarted = false;
-
-      return res.status(403).json({
-        message: "Not allowed.",
-      });
+      return res.status(403).json({ message: "Not allowed." });
     }
-
     const customer = customerResult.rows[0];
 
-    // Lock the persistent balance for this transaction.
-    const previousBalance = await readCustomerBalance(
-      client,
-      userId,
-      customerId,
-      billingType,
-      true,
-    );
+    // Lock the account balance; the balance is the single source of truth for
+    // previously transferred entry debt and payments made against it.
+    const previousBalance = await readCustomerBalance(client, userId, Number(customerId), billingType, true);
 
-    // Lock only current entries that have not been transferred.
-    const entriesResult = await client.query(
-      `SELECT
-         id,
-         customer_id,
-         user_id,
-         kgs,
-         rate,
-         commission,
-         bags,
-         entry_date,
-         amount,
-         paid_amount,
-         already_paid,
-         item_name,
-         luggage_amount,
-         billing_type,
-         fully_paid_at,
-         delete_after
-       FROM entries
-       WHERE customer_id = $1
-         AND user_id = $2
-         AND billing_type = $3
-         AND entry_date BETWEEN $4 AND $5
-         AND balance_transferred_at IS NULL
-       ORDER BY entry_date ASC, id ASC
-       FOR UPDATE`,
-      [customerId, userId, billingType, from, to],
-    );
-
-    const entries = entriesResult.rows;
-
-    const includedIds = Array.isArray(meta?.includedEntryIds)
-      ? [...new Set(meta.includedEntryIds.map(Number))]
-      : null;
-
-    if (
-      includedIds &&
-      includedIds.some((id) => !Number.isInteger(id) || id <= 0)
-    ) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-
-      return res.status(400).json({
-        message: "Invalid selected entry IDs.",
-      });
-    }
-
-    let candidateEntries = entries;
-
-    if (includedIds !== null) {
-      const includedSet = new Set(includedIds);
-
-      candidateEntries = entries.filter((entry) =>
-        includedSet.has(Number(entry.id)),
+    let candidateEntries = [];
+    if (hasDateRange && requestedIds.length) {
+      const entriesResult = await client.query(
+        `SELECT id, customer_id, user_id, kgs, rate, commission, bags, entry_date,
+                amount, paid_amount, already_paid, item_name, luggage_amount,
+                billing_type, balance_transferred_at
+         FROM entries
+         WHERE customer_id = $1 AND user_id = $2 AND billing_type = $3
+           AND entry_date BETWEEN $4 AND $5 AND id = ANY($6::int[])
+         ORDER BY entry_date ASC, id ASC FOR UPDATE`,
+        [customerId, userId, billingType, from, to, requestedIds],
       );
-
-      if (candidateEntries.length !== includedSet.size) {
+      candidateEntries = entriesResult.rows;
+      if (candidateEntries.length !== requestedIds.length) {
         await client.query("ROLLBACK");
         transactionStarted = false;
-
-        return res.status(400).json({
-          message:
-            "One or more selected entries are invalid or no longer available.",
-        });
+        return res.status(400).json({ message: "One or more selected entries are invalid." });
+      }
+      if (candidateEntries.some((entry) => entry.balance_transferred_at)) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ message: "One or more selected entries were already transferred to the customer balance. Reload entries and try again." });
       }
     }
 
-    const unpaidEntries = candidateEntries.filter((entry) => {
-      const entryAmount = calculateEntryAmount(entry, billingType);
+    // Entry outstanding = gross amount minus payments already recorded and the
+    // entry's separate already-paid field. Commission and bag charges are
+    // applied once to the selected group, not once per reload.
+    const rawEntryOutstanding = candidateEntries.reduce((sum, entry) =>
+      sum + Math.max(0, calculateEntryAmount(entry, billingType)
+        - Number(entry.paid_amount || 0) - Number(entry.already_paid || 0)), 0);
+    const currentBillAmount = Math.max(0, rawEntryOutstanding - commissionAmount + bagTotal + luggageTotal);
+    const totalOutstanding = money(previousBalance + currentBillAmount);
 
-      return entryAmount - Number(entry.paid_amount || 0) > 0.005;
-    });
-
-    // Calculate the selected entries' outstanding amount.
-    const currentBillAmount = unpaidEntries.reduce((sum, entry) => {
-      const entryAmount = calculateEntryAmount(entry, billingType);
-
-      return sum + Math.max(0, entryAmount - Number(entry.paid_amount || 0));
-    }, 0);
-
-    // Include both the old balance and current selected entries.
-    const totalAvailable = Number(
-      (previousBalance + currentBillAmount).toFixed(2),
-    );
-
-    if (totalAvailable <= 0.005) {
+    if (totalOutstanding <= 0.005) {
       await client.query("ROLLBACK");
       transactionStarted = false;
-
-      return res.status(400).json({
-        message: "There is no outstanding balance to pay.",
-      });
+      return res.status(400).json({ message: "There is no outstanding balance to pay." });
     }
-
-    if (paymentAmount > totalAvailable + 0.005) {
+    if (paymentAmount > totalOutstanding + 0.005) {
       await client.query("ROLLBACK");
       transactionStarted = false;
-
-      return res.status(400).json({
-        message: `Payment amount cannot exceed the total outstanding balance of ₹${totalAvailable.toFixed(2)}.`,
-      });
+      return res.status(400).json({ message: `Payment amount cannot exceed the total outstanding balance of ₹${totalOutstanding.toFixed(2)}.` });
     }
 
-    // Read the existing automatic deletion settings.
-    const settingsResult = await client.query(
-      `SELECT
-         auto_delete_paid_entries_enabled,
-         auto_delete_paid_entries_after_hours
-       FROM user_settings
-       WHERE user_id = $1`,
-      [userId],
-    );
-
-    const settings = settingsResult.rows[0] || {};
-
-    const autoDeleteEnabled =
-      settings.auto_delete_paid_entries_enabled === true;
-
-    const deletionDelayHours = Math.max(
-      1,
-      Math.min(
-        8760,
-        Number(settings.auto_delete_paid_entries_after_hours) || 24,
-      ),
-    );
-
-    // Apply the payment to the previous balance first.
-    const paymentAgainstPrevious = Math.min(previousBalance, paymentAmount);
-
-    const balanceAfterPreviousPayment = Math.max(
-      0,
-      previousBalance - paymentAgainstPrevious,
-    );
-
-    let unallocatedPayment = Math.max(
-      0,
-      paymentAmount - paymentAgainstPrevious,
-    );
-
-    // Apply any remaining payment to current entries oldest-first.
-    for (const entry of unpaidEntries) {
-      if (unallocatedPayment <= 0.005) break;
-
-      const entryAmount = calculateEntryAmount(entry, billingType);
-
-      const previousPaid = Number(entry.paid_amount || 0);
-
-      const outstanding = Math.max(0, entryAmount - previousPaid);
-
-      if (outstanding <= 0) continue;
-
-      const amountApplied = Math.min(outstanding, unallocatedPayment);
-
-      const newPaidAmount = Math.min(entryAmount, previousPaid + amountApplied);
-
-      const isFullyPaid = newPaidAmount >= entryAmount - 0.005;
-
+    // Move the selected entries into the persistent balance exactly once.
+    // Historical rows are retained; remaining=0 and balance_transferred_at
+    // ensure they stay visible without being counted again on later reloads.
+    for (const entry of candidateEntries) {
       await client.query(
         `UPDATE entries
-         SET
-           paid_amount = $1,
-           remaining = GREATEST(0::numeric, $2::numeric - $1::numeric),
-           fully_paid_at = CASE
-             WHEN $3 THEN COALESCE(
-               fully_paid_at,
-               CURRENT_TIMESTAMP
-             )
-             ELSE NULL
-           END,
-           delete_after = CASE
-             WHEN $3 AND $4 THEN COALESCE(
-               delete_after,
-               CURRENT_TIMESTAMP +
-                 ($5 * INTERVAL '1 hour')
-             )
-             ELSE NULL
-           END
-         WHERE id = $6
-           AND customer_id = $7
-           AND user_id = $8`,
-        [
-          newPaidAmount,
-          entryAmount,
-          isFullyPaid,
-          autoDeleteEnabled,
-          deletionDelayHours,
-          entry.id,
-          customerId,
-          userId,
-        ],
-      );
-
-      unallocatedPayment -= amountApplied;
-    }
-
-    /*
-     * Transfer the remaining unpaid amounts into the
-     * persistent customer balance, exactly once.
-     */
-    let newlyCarriedForward = 0;
-
-    for (const entry of unpaidEntries) {
-      const entryAmount = calculateEntryAmount(entry, billingType);
-
-      const currentResult = await client.query(
-        `SELECT paid_amount, balance_transferred_at
-         FROM entries
-         WHERE id = $1
-           AND customer_id = $2
-           AND user_id = $3
-         FOR UPDATE`,
+         SET remaining = 0,
+             balance_transferred_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND customer_id = $2 AND user_id = $3
+           AND balance_transferred_at IS NULL`,
         [entry.id, customerId, userId],
       );
-
-      const currentEntry = currentResult.rows[0];
-
-      if (!currentEntry || currentEntry.balance_transferred_at) {
-        continue;
-      }
-
-      const paid = Number(currentEntry.paid_amount || 0);
-
-      const outstanding = Math.max(0, entryAmount - paid);
-
-      if (outstanding > 0.005) {
-        newlyCarriedForward += outstanding;
-
-        await client.query(
-          `UPDATE entries
-           SET
-             balance_transferred_at = CURRENT_TIMESTAMP,
-             remaining = 0
-           WHERE id = $1
-             AND customer_id = $2
-             AND user_id = $3
-             AND balance_transferred_at IS NULL`,
-          [entry.id, customerId, userId],
-        );
-      }
     }
 
-    // Save the final customer balance.
-    const closingBalance = Number(
-      (balanceAfterPreviousPayment + newlyCarriedForward).toFixed(2),
-    );
-
+    const closingBalance = money(Math.max(0, totalOutstanding - paymentAmount));
     await client.query(
-      `UPDATE customer_balances
-       SET
-         balance = $1,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = $2
-         AND customer_id = $3
-         AND billing_type = $4`,
+      `UPDATE customer_balances SET balance = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $2 AND customer_id = $3 AND billing_type = $4`,
       [closingBalance, userId, customerId, billingType],
     );
 
-    // Preserve payment history.
     const paymentResult = await client.query(
-      `INSERT INTO payments (
-         customer_id,
-         user_id,
-         amount,
-         mode,
-         billing_type,
-         from_date,
-         to_date,
-         payment_date
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id`,
-      [
-        customerId,
-        userId,
-        paymentAmount,
-        paymentMode || null,
-        billingType,
-        from,
-        to,
-        dayjs().toISOString(),
-      ],
+      `INSERT INTO payments (customer_id, user_id, amount, mode, billing_type, from_date, to_date, payment_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [customerId, userId, paymentAmount, paymentMode || null, billingType, from, to, dayjs().toISOString()],
     );
-
     const billId = paymentResult.rows[0].id;
 
-    // Keep current-period entries on the receipt.
-    const pdfEntriesResult = await client.query(
-      `SELECT
-         id,
-         entry_date,
-         kgs,
-         rate,
-         commission,
-         bags,
-         amount,
-         paid_amount,
-         already_paid,
-         item_name,
-         luggage_amount,
-         billing_type
-       FROM entries
-       WHERE customer_id = $1
-         AND user_id = $2
-         AND billing_type = $3
-         AND entry_date BETWEEN $4 AND $5
-       ORDER BY entry_date ASC, id ASC`,
-      [customerId, userId, billingType, from, to],
-    );
-
-    const pdfEntries = pdfEntriesResult.rows.map((entry) =>
-      normalizeEntry(entry, billingType),
-    );
+    let pdfEntries = candidateEntries.map((entry) => normalizeEntry(entry, billingType));
+    if (!pdfEntries.length && hasDateRange) {
+      const pdfEntriesResult = await client.query(
+        `SELECT id, entry_date, kgs, rate, commission, bags, amount, paid_amount,
+                already_paid, item_name, luggage_amount, billing_type
+         FROM entries WHERE customer_id = $1 AND user_id = $2 AND billing_type = $3
+           AND entry_date BETWEEN $4 AND $5 ORDER BY entry_date ASC, id ASC`,
+        [customerId, userId, billingType, from, to],
+      );
+      pdfEntries = pdfEntriesResult.rows.map((entry) => normalizeEntry(entry, billingType));
+    }
 
     const pdfInfo = await generateBillPDF(
-      customer,
-      pdfEntries,
-      paymentAmount,
-      paymentMode,
-      from,
-      to,
-      billId,
-      {
-        previousBalance,
-        currentBillAmount,
-        totalOutstanding: totalAvailable,
-        closingBalance,
-      },
+      customer, pdfEntries, paymentAmount, paymentMode, from || new Date(), to || new Date(), billId,
+      { previousBalance, currentBillAmount, totalOutstanding, closingBalance },
     );
 
     await client.query("COMMIT");
@@ -840,28 +518,21 @@ export const makePayment = async (req, res) => {
       billId,
       pdfUrl: `/bills/${pdfInfo.filename}`,
       amount: paymentAmount,
-      previousBalance: Number(previousBalance.toFixed(2)),
-      currentBillAmount: Number(currentBillAmount.toFixed(2)),
-      totalOutstanding: totalAvailable,
-      paymentReceived: Number(paymentAmount.toFixed(2)),
+      previousBalance: money(previousBalance),
+      currentBillAmount: money(currentBillAmount),
+      totalOutstanding,
+      paymentReceived: money(paymentAmount),
       closingBalance,
-      outstandingBeforePayment: totalAvailable,
+      outstandingBeforePayment: totalOutstanding,
       outstandingAfterPayment: closingBalance,
     });
   } catch (error) {
     if (client && transactionStarted) {
-      try {
-        await client.query("ROLLBACK");
-      } catch (rollbackError) {
-        console.error("Payment rollback error:", rollbackError);
-      }
+      try { await client.query("ROLLBACK"); }
+      catch (rollbackError) { console.error("Payment rollback error:", rollbackError); }
     }
-
     console.error("makePayment error:", error);
-
-    return res.status(500).json({
-      message: "Error processing payment.",
-    });
+    return res.status(500).json({ message: "Error processing payment." });
   } finally {
     if (client) client.release();
   }

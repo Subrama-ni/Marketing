@@ -71,15 +71,16 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
     savedCustomerBalance || entriesData.carryForwardBalance || 0,
   );
 
-  const selectedOutstanding = entriesData.entries
-    .filter(
-      (entry) => Number(entry.remaining) > 0 && selectedUnpaidIds.has(entry.id),
-    )
+  const selectedRawOutstanding = entriesData.entries
+    .filter((entry) => Number(entry.remaining) > 0 && selectedUnpaidIds.has(entry.id))
     .reduce((total, entry) => total + Number(entry.remaining || 0), 0);
 
-  const totalOutstanding = Number(
-    (carryForwardBalance + selectedOutstanding).toFixed(2),
-  );
+  const selectedOutstanding = Math.max(0, Number((
+    selectedRawOutstanding - Number(alreadyPaid || 0) - Number(commissionAmount || 0)
+    + Number(billingMode === "luggage" ? luggageTotal || 0 : bagTotal || 0)
+  ).toFixed(2)));
+
+  const totalOutstanding = Number((carryForwardBalance + selectedOutstanding).toFixed(2));
 
   const computeFinalPayable = useCallback(
     (remaining, commission, bags, alreadyPaidVal, luggage) => {
@@ -243,10 +244,13 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         const paid = Number(entry.paid_amount || 0);
         const luggageAmount = Number(entry.luggage_amount || 0);
 
-        const amount =
-          billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate;
+        const amount = Number((kgs * rate).toFixed(2));
 
-        const remaining = Math.max(amount - paid, 0);
+        // already_paid is subtracted in the final payable calculation; keeping
+        // it separate here avoids subtracting it twice.
+        const remaining = entry.balance_transferred_at
+          ? 0
+          : Math.max(amount - paid, 0);
 
         return {
           ...entry,
@@ -435,9 +439,11 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       return toast.error("Enter a valid commission percentage");
     }
 
-    const commissionValue = Number(
-      ((remainingSelected * percent) / 100).toFixed(2),
+    const selectedGrossAmount = unpaidSelected.reduce(
+      (sum, entry) => sum + Number(entry.amount || 0),
+      0,
     );
+    const commissionValue = Number(((selectedGrossAmount * percent) / 100).toFixed(2));
 
     const payable = Math.max(remainingSelected - commissionValue, 0);
 
@@ -553,6 +559,10 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
 
     const hasDateRange = Boolean(fromDate && toDate);
 
+    if (Boolean(fromDate) !== Boolean(toDate)) {
+      return toast.warn("Choose both From and To dates, or clear both to pay only the carry-forward balance.");
+    }
+
     if (!hasDateRange && carryForwardBalance <= 0) {
       return toast.warn(
         "Select a date range to load entries, or choose a customer with an outstanding balance.",
@@ -573,10 +583,14 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
       (entry) => Number(entry.remaining) > 0 && selectedUnpaidIds.has(entry.id),
     );
 
-    const currentSelectedOutstanding = unpaidSelected.reduce(
+    const currentRawOutstanding = unpaidSelected.reduce(
       (total, entry) => total + Number(entry.remaining || 0),
       0,
     );
+    const currentSelectedOutstanding = Math.max(0, Number((
+      currentRawOutstanding - Number(alreadyPaid || 0) - Number(commissionAmount || 0)
+      + Number(billingMode === "luggage" ? luggageTotal || 0 : bagTotal || 0)
+    ).toFixed(2)));
 
     const previousBalance = Number(carryForwardBalance || 0);
 
@@ -612,7 +626,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           bagTotal: Number(bagTotal || 0),
           alreadyPaid: Number(alreadyPaid || 0),
           luggageTotal: Number(luggageTotal || 0),
-          includedEntryIds: unpaidSelected.map((entry) => entry.id),
+          includedEntryIds: hasDateRange ? unpaidSelected.map((entry) => entry.id) : [],
         },
       };
 
@@ -902,14 +916,7 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
             className="input"
             type="date"
             value={fromDate}
-            onChange={(event) => {
-              if (isDateBlocked(event.target.value)) {
-                toast.info("This date is already fully paid.");
-                return;
-              }
-
-              setFromDate(event.target.value);
-            }}
+            onChange={(event) => setFromDate(event.target.value)}
           />
 
           <label>To:</label>
