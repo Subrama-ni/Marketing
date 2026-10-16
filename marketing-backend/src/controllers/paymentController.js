@@ -10,21 +10,28 @@ import dayjs from "dayjs";
 ===================================================== */
 
 const calculateEntryAmount = (entry, billingType) => {
-  // Store/display the gross entry amount. Payment-level commission, already-paid
-  // amounts and bag charges are applied once in makePayment().
+  // Amount column is the gross amount; the entry-level commission is a quantity
+  // deduction, so farmer payable is (kgs - commission) * rate.
   const kgs = Number(entry.kgs || 0);
   const rate = Number(entry.rate || 0);
-  return Number((kgs * rate).toFixed(2));
+  return money(kgs * rate);
+};
+
+const calculateEntryPayable = (entry, billingType) => {
+  const kgs = Number(entry.kgs || 0);
+  const rate = Number(entry.rate || 0);
+  const commission = Number(entry.commission || 0);
+  if (billingType === "luggage") return money(kgs * rate);
+  return money(Math.max(0, kgs - commission) * rate);
 };
 
 const money = (value) => Number((Number(value) || 0).toFixed(2));
 
 const calculateEntryOutstanding = (entry, billingType) => {
-  const gross = calculateEntryAmount(entry, billingType);
+  const payable = calculateEntryPayable(entry, billingType);
   const paid = Number(entry.paid_amount || 0);
-  const alreadyPaid = Number(entry.already_paid || 0);
   if (entry.balance_transferred_at) return 0;
-  return Math.max(0, gross - paid - alreadyPaid);
+  return money(Math.max(0, payable - paid));
 };
 
 const normalizeEntry = (entry, billingType) => ({
@@ -314,8 +321,11 @@ export const getEntriesForPayment = async (req, res) => {
 
     const outsideResult = await pool.query(
       `SELECT COALESCE(SUM(GREATEST(0,
-           (COALESCE(kgs, 0) * COALESCE(rate, 0))
-           - COALESCE(paid_amount, 0) - COALESCE(already_paid, 0)
+           (CASE WHEN $3 = 'luggage'
+             THEN COALESCE(kgs, 0) * COALESCE(rate, 0)
+             ELSE GREATEST(0, COALESCE(kgs, 0) - COALESCE(commission, 0)) * COALESCE(rate, 0)
+           END)
+           - COALESCE(paid_amount, 0)
          )), 0) AS remaining_outside
        FROM entries
        WHERE customer_id = $1 AND user_id = $2 AND billing_type = $3
@@ -448,9 +458,10 @@ export const makePayment = async (req, res) => {
     // Entry outstanding = gross amount minus payments already recorded and the
     // entry's separate already-paid field. Commission and bag charges are
     // applied once to the selected group, not once per reload.
-    const rawEntryOutstanding = candidateEntries.reduce((sum, entry) =>
-      sum + Math.max(0, calculateEntryAmount(entry, billingType)
-        - Number(entry.paid_amount || 0) - Number(entry.already_paid || 0)), 0);
+    const rawEntryOutstanding = candidateEntries.reduce(
+      (sum, entry) => sum + calculateEntryOutstanding(entry, billingType),
+      0,
+    );
     const currentBillAmount = Math.max(0, rawEntryOutstanding - commissionAmount + bagTotal + luggageTotal);
     const totalOutstanding = money(previousBalance + currentBillAmount);
 

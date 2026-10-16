@@ -245,12 +245,19 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
         const luggageAmount = Number(entry.luggage_amount || 0);
 
         const amount = Number((kgs * rate).toFixed(2));
+        const payableBeforePayment = Number((
+          billingMode === "luggage" ? kgs * rate : Math.max(0, kgs - commission) * rate
+        ).toFixed(2));
 
-        // already_paid is subtracted in the final payable calculation; keeping
-        // it separate here avoids subtracting it twice.
+        // A transferred entry is settled into the carry-forward account and must
+        // remain visible without being counted again. Otherwise show its payable
+        // amount after the entry-level commission quantity deduction.
         const remaining = entry.balance_transferred_at
           ? 0
-          : Math.max(amount - paid, 0);
+          : Math.max(Number((payableBeforePayment - paid).toFixed(2)), 0);
+        const displayedPaid = entry.balance_transferred_at && paid <= 0
+          ? payableBeforePayment
+          : paid;
 
         return {
           ...entry,
@@ -259,7 +266,8 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           rate,
           commission,
           amount,
-          paid_amount: paid,
+          paid_amount: displayedPaid,
+          recorded_paid_amount: paid,
           remaining,
           bags: Number(entry.bags || 0),
           item_name: entry.item_name || "",
@@ -1046,7 +1054,10 @@ export default function PaymentsPage({ selectedCustomer, onSelectCustomer }) {
           <div style={{ marginTop: 10 }}>
             <div>
               Remaining: ₹
-              {Number(entriesData.totals.remainingOutside || 0).toFixed(2)}
+              {Number(entriesData.entries
+                .filter((entry) => entry.remaining > 0 && selectedUnpaidIds.has(entry.id))
+                .reduce((sum, entry) => sum + Number(entry.remaining || 0), 0)
+              ).toFixed(2)}
             </div>
 
             <div>Commission Amount: ₹{Number(commissionAmount).toFixed(2)}</div>
