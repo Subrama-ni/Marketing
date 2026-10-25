@@ -31,11 +31,12 @@ import "./App.css";
 import { ToastContainer, Slide } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-import { initActivityListeners, resetActivityListeners } from "./sessionActivity";
+import {
+  initActivityListeners,
+  resetActivityListeners,
+} from "./sessionActivity";
 import { getSettings } from "./api";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
-
-<Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
 const DEFAULT_ACTIVE_MINUTES = 10;
 const DEFAULT_INACTIVE_MINUTES = 10;
@@ -70,13 +71,11 @@ function Topbar({ theme, toggleTheme }) {
 
     const compute = () => {
       const loginTime = Number(localStorage.getItem("loginTime"));
-      const lastActive = Number(localStorage.getItem("lastActive")) || loginTime;
+      const lastActive =
+        Number(localStorage.getItem("lastActive")) || loginTime;
       if (!loginTime) return;
 
-      const expireAt = Math.min(
-        loginTime + activeMs,
-        lastActive + inactiveMs
-      );
+      const expireAt = Math.min(loginTime + activeMs, lastActive + inactiveMs);
 
       const diff = expireAt - Date.now();
       if (diff <= 0) {
@@ -89,8 +88,8 @@ function Topbar({ theme, toggleTheme }) {
       const sec = Math.floor(diff / 1000);
       setRemainingTime(
         `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(
-          sec % 60
-        ).padStart(2, "0")}`
+          sec % 60,
+        ).padStart(2, "0")}`,
       );
     };
 
@@ -103,9 +102,7 @@ function Topbar({ theme, toggleTheme }) {
     <div className="premium-topbar">
       <h3>📊 Dashboard</h3>
       <div className="actions">
-        <button onClick={toggleTheme}>
-          {theme === "light" ? "🌙" : "☀️"}
-        </button>
+        <button onClick={toggleTheme}>{theme === "light" ? "🌙" : "☀️"}</button>
         <span>{user?.name}</span>
         <span className="timer">{remainingTime}</span>
         <button
@@ -128,7 +125,7 @@ function Topbar({ theme, toggleTheme }) {
 ============================ */
 function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(
-    localStorage.getItem("sidebarCollapsed") === "true"
+    localStorage.getItem("sidebarCollapsed") === "true",
   );
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
@@ -144,7 +141,9 @@ function DashboardLayout() {
   }, [theme]);
 
   return (
-    <div className={`dashboard-wrapper ${theme} ${collapsed ? "collapsed" : ""}`}>
+    <div
+      className={`dashboard-wrapper ${theme} ${collapsed ? "collapsed" : ""}`}
+    >
       <Sidebar
         collapsed={collapsed}
         setCollapsed={() => {
@@ -199,11 +198,13 @@ function SettingsBootstrap({ children }) {
         const s = res.data || {};
         localStorage.setItem(
           "session_active_ms",
-          String((s.active_timeout_minutes || DEFAULT_ACTIVE_MINUTES) * 60000)
+          String((s.active_timeout_minutes || DEFAULT_ACTIVE_MINUTES) * 60000),
         );
         localStorage.setItem(
           "session_inactive_ms",
-          String((s.inactive_timeout_minutes || DEFAULT_INACTIVE_MINUTES) * 60000)
+          String(
+            (s.inactive_timeout_minutes || DEFAULT_INACTIVE_MINUTES) * 60000,
+          ),
         );
       } finally {
         setLoaded(true);
@@ -230,7 +231,11 @@ function AppRoutes() {
       <Route
         path="/"
         element={
-          isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />
+          isAuthenticated ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <LandingPage />
+          )
         }
       />
       <Route
@@ -242,9 +247,15 @@ function AppRoutes() {
       <Route
         path="/register"
         element={
-          isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />
+          isAuthenticated ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <RegisterPage />
+          )
         }
       />
+
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
       {/* ✅ EMAIL VERIFICATION */}
       <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
