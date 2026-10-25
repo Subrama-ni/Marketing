@@ -202,7 +202,7 @@ export default function LandingPage() {
           <Link to="/login" className="nav-login">
             Log in
           </Link>
-          <Link to="/register" className="nav-register">
+          <Link to="/login" className="nav-register">
             Get started <span aria-hidden="true">↗</span>
           </Link>
         </nav>
@@ -234,7 +234,7 @@ export default function LandingPage() {
               </p>
 
               <div className="hero-buttons">
-                <Link to="/register" className="hero-btn hero-btn-primary">
+                <Link to="/login" className="hero-btn hero-btn-primary">
                   Get started <span aria-hidden="true">→</span>
                 </Link>
                 <Link to="/login" className="hero-btn hero-btn-secondary">
@@ -327,7 +327,7 @@ export default function LandingPage() {
             <p>
               Get started with a more organized way to manage your business.
             </p>
-            <Link to="/register" className="hero-btn cta-button">
+            <Link to="/login" className="hero-btn cta-button">
               Create your account <span aria-hidden="true">→</span>
             </Link>
           </div>
