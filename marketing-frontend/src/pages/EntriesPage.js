@@ -12,21 +12,23 @@ import {
 import { toast } from "react-toastify";
 import { useBillingMode } from "../context/BillingModeContext";
 
-function useQuery() {
-  const location = useLocation();
-  return new URLSearchParams(location.search || "");
-}
-
 const money = (value) => Number(Number(value || 0).toFixed(2));
 const formatMoney = (value) => money(value).toFixed(2);
 
 export default function EntriesPage({ selectedCustomer }) {
-  useQuery();
+  const location = useLocation();
+
+  const query = new URLSearchParams(location.search);
+  const queryCustomerId = query.get("customerId");
+  const queryEntryId = query.get("entryId");
+  const queryBillingMode = query.get("billingMode");
+
   const { billingMode, setBillingMode } = useBillingMode();
   const [customers, setCustomers] = useState([]);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [customerId, setCustomerId] = useState(
-    selectedCustomer?.id ? String(selectedCustomer.id) : "",
+    queryCustomerId ||
+      (selectedCustomer?.id ? String(selectedCustomer.id) : ""),
   );
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -41,6 +43,30 @@ export default function EntriesPage({ selectedCustomer }) {
     already_paid: "",
     luggage_amount: "",
   });
+
+  useEffect(() => {
+    if (
+      queryBillingMode &&
+      ["farmer", "luggage"].includes(queryBillingMode) &&
+      queryBillingMode !== billingMode
+    ) {
+      setBillingMode(queryBillingMode);
+    }
+
+    if (queryCustomerId) {
+      setCustomerId((currentId) =>
+        currentId === queryCustomerId ? currentId : queryCustomerId,
+      );
+    } else if (selectedCustomer?.id) {
+      setCustomerId(String(selectedCustomer.id));
+    }
+  }, [
+    queryCustomerId,
+    queryBillingMode,
+    selectedCustomer?.id,
+    billingMode,
+    setBillingMode,
+  ]);
 
   const loadCustomers = useCallback(async () => {
     try {
@@ -126,6 +152,25 @@ export default function EntriesPage({ selectedCustomer }) {
   useEffect(() => {
     loadEntries(customerId);
   }, [customerId, billingMode, loadEntries]);
+
+  useEffect(() => {
+    if (!queryEntryId || entries.length === 0) return;
+
+    const targetEntry = entries.find(
+      (entry) => String(entry.id) === String(queryEntryId),
+    );
+
+    if (!targetEntry) return;
+
+    const target = document.getElementById(`entry-${queryEntryId}`);
+
+    if (target) {
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [queryEntryId, entries]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -356,7 +401,7 @@ export default function EntriesPage({ selectedCustomer }) {
                 </tr>
               ) : (
                 entries.map((entry) => (
-                  <tr key={entry.id}>
+                  <tr key={entry.id} id={`entry-${entry.id}`}>
                     <td>{dayjs(entry.entry_date).format("DD/MM/YYYY")}</td>
                     <td>{entry.item_name || "-"}</td>
                     <td>{Number(entry.kgs || 0).toFixed(2)}</td>

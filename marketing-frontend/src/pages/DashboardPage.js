@@ -1,5 +1,11 @@
 // src/pages/DashboardPage.js
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Bar, Doughnut } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -28,7 +34,7 @@ ChartJS.register(
   Tooltip,
   Legend,
   Filler,
-  zoomPlugin
+  zoomPlugin,
 );
 
 const PERIOD_OPTIONS = [
@@ -60,7 +66,9 @@ export default function DashboardPage() {
   const chartRef = useRef(null);
 
   // billing mode (localStorage). Option A: dashboard shows only luggage entries when luggage mode selected.
-  const [billingMode, setBillingMode] = useState(localStorage.getItem("billingMode") || "farmer");
+  const [billingMode, setBillingMode] = useState(
+    localStorage.getItem("billingMode") || "farmer",
+  );
 
   useEffect(() => {
     const root = document.querySelector(".dashboard-page") || document.body;
@@ -104,7 +112,7 @@ export default function DashboardPage() {
             console.error("entry load error for", c.id, err);
             return { customer: c, entries: [] };
           }
-        })
+        }),
       );
 
       // If in luggage mode, only consider customers who have at least one luggage entry.
@@ -115,7 +123,8 @@ export default function DashboardPage() {
       // Decide which customer list to use for dashboard counts / display:
       // - In luggage mode: show only customers that have luggage entries
       // - Otherwise: show all customers
-      const effectiveCustomers = billingMode === "luggage" ? customersWithEntries : cs;
+      const effectiveCustomers =
+        billingMode === "luggage" ? customersWithEntries : cs;
 
       // Compute totals from the entries of the selected billing mode only
       let unpaidSum = 0;
@@ -131,13 +140,31 @@ export default function DashboardPage() {
           const paid = Number(e.paid_amount || 0);
           // If billingMode is luggage the backend's entry amount should already reflect that,
           // but keep calculation defensive (amount field may or may not be present).
-          const amount = e.amount != null ? Number(e.amount) : (billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate);
+          const amount =
+            e.amount != null
+              ? Number(e.amount)
+              : billingMode === "luggage"
+                ? kgs * rate
+                : (kgs - commission) * rate;
           const remaining = Math.max(amount - paid, 0);
-          return { ...e, amount, remaining, customerName: customer.name, customerId: customer.id };
+          return {
+            ...e,
+            amount,
+            remaining,
+            customerName: customer.name,
+            customerId: customer.id,
+          };
         });
 
-        unpaidSum += entriesWithAmount.reduce((s, x) => s + (x.remaining || 0), 0);
-        paidSum += entriesWithAmount.reduce((s, x) => s + Math.min(Number(x.paid_amount || 0), Number(x.amount || 0)), 0);
+        unpaidSum += entriesWithAmount.reduce(
+          (s, x) => s + (x.remaining || 0),
+          0,
+        );
+        paidSum += entriesWithAmount.reduce(
+          (s, x) =>
+            s + Math.min(Number(x.paid_amount || 0), Number(x.amount || 0)),
+          0,
+        );
 
         entriesWithAmount
           .sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date))
@@ -147,13 +174,18 @@ export default function DashboardPage() {
               customer: customer.name,
               customerId: customer.id,
               ...entry,
-            })
+            }),
           );
       });
 
       const totalAmount = paidSum + unpaidSum;
       const lastUnpaid = prevUnpaidRef.current || 0;
-      const trendStatus = unpaidSum > lastUnpaid ? "up" : unpaidSum < lastUnpaid ? "down" : "neutral";
+      const trendStatus =
+        unpaidSum > lastUnpaid
+          ? "up"
+          : unpaidSum < lastUnpaid
+            ? "down"
+            : "neutral";
       prevUnpaidRef.current = unpaidSum;
 
       setTrend({ unpaidTrend: trendStatus });
@@ -162,14 +194,18 @@ export default function DashboardPage() {
         unpaid: unpaidSum,
         paid: paidSum,
         total: totalAmount,
-        recentEntries: recentEntries.sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date)),
+        recentEntries: recentEntries.sort(
+          (a, b) => new Date(b.entry_date) - new Date(a.entry_date),
+        ),
       });
 
       // update customers list shown in the dashboard (right column). We still keep full list in state if needed.
       setCustomers(effectiveCustomers);
 
       // Build time buckets for chart using entries (only those in selected billingMode)
-      buildTimeBucketsFromEntries(allEntriesByCustomer.flatMap((x) => x.entries));
+      buildTimeBucketsFromEntries(
+        allEntriesByCustomer.flatMap((x) => x.entries),
+      );
     } catch (err) {
       console.error("❌ Error fetching overview:", err);
     } finally {
@@ -189,23 +225,30 @@ export default function DashboardPage() {
         (c) =>
           (c.name || "").toLowerCase().includes(q) ||
           (c.serial?.toString() || "").includes(q) ||
-          (c.phone || "").includes(q)
-      )
+          (c.phone || "").includes(q),
+      ),
     );
   }, [search, customers]);
 
   // build monthly buckets (label, start, end) from entries or default last 12 months
   const buildTimeBucketsFromEntries = (allEntries) => {
-    const dates = (allEntries || []).map((e) => new Date(e.entry_date)).filter(Boolean);
+    const dates = (allEntries || [])
+      .map((e) => new Date(e.entry_date))
+      .filter(Boolean);
     let end = dayjs();
     let start = end.subtract(11, "month").startOf("month");
     if (dates.length) {
-      const earliest = dayjs(Math.min(...dates.map((d) => d.getTime()))).startOf("month");
+      const earliest = dayjs(
+        Math.min(...dates.map((d) => d.getTime())),
+      ).startOf("month");
       if (earliest.isBefore(start)) start = earliest;
     }
     const buckets = [];
     let cur = start.startOf("month");
-    while (cur.isBefore(end.endOf("month")) || cur.isSame(end.startOf("month"), "month")) {
+    while (
+      cur.isBefore(end.endOf("month")) ||
+      cur.isSame(end.startOf("month"), "month")
+    ) {
       const label = cur.format("MMM YYYY");
       const bucketStart = cur.startOf("month").toDate();
       const bucketEnd = cur.endOf("month").toDate();
@@ -221,14 +264,27 @@ export default function DashboardPage() {
     const buckets = [...timeBuckets];
     if (!buckets.length) return { labels: [], datasets: [] };
     let selectedBuckets = buckets;
-    if (periodMonths && periodMonths > 0) selectedBuckets = buckets.slice(-periodMonths);
+    if (periodMonths && periodMonths > 0)
+      selectedBuckets = buckets.slice(-periodMonths);
     const paidArr = new Array(selectedBuckets.length).fill(0);
     const unpaidArr = new Array(selectedBuckets.length).fill(0);
     return {
       labels: selectedBuckets.map((b) => b.label),
       datasets: [
-        { label: "Paid", data: paidArr, backgroundColor: "rgba(34,197,94,0.85)", stack: "stack1", borderRadius: 6 },
-        { label: "Unpaid", data: unpaidArr, backgroundColor: "rgba(239,68,68,0.85)", stack: "stack1", borderRadius: 6 },
+        {
+          label: "Paid",
+          data: paidArr,
+          backgroundColor: "rgba(34,197,94,0.85)",
+          stack: "stack1",
+          borderRadius: 6,
+        },
+        {
+          label: "Unpaid",
+          data: unpaidArr,
+          backgroundColor: "rgba(239,68,68,0.85)",
+          stack: "stack1",
+          borderRadius: 6,
+        },
       ],
     };
   }, [timeBuckets, periodMonths]);
@@ -241,7 +297,9 @@ export default function DashboardPage() {
 
     (async () => {
       try {
-        const buckets = periodMonths ? timeBuckets.slice(-periodMonths) : timeBuckets;
+        const buckets = periodMonths
+          ? timeBuckets.slice(-periodMonths)
+          : timeBuckets;
         const labels = buckets.map((b) => b.label);
         const paidArr = new Array(buckets.length).fill(0);
         const unpaidArr = new Array(buckets.length).fill(0);
@@ -256,9 +314,16 @@ export default function DashboardPage() {
                 const kgs = Number(e.kgs || 0);
                 const rate = Number(e.rate || 0);
                 const commission = Number(e.commission || 0);
-                const amount = e.amount != null ? Number(e.amount) : (billingMode === "luggage" ? kgs * rate : (kgs - commission) * rate);
+                const amount =
+                  e.amount != null
+                    ? Number(e.amount)
+                    : billingMode === "luggage"
+                      ? kgs * rate
+                      : (kgs - commission) * rate;
                 const paid = Number(e.paid_amount || 0);
-                const idx = buckets.findIndex((b) => entryDate >= b.start && entryDate <= b.end);
+                const idx = buckets.findIndex(
+                  (b) => entryDate >= b.start && entryDate <= b.end,
+                );
                 if (idx >= 0) {
                   paidArr[idx] += Math.min(paid, amount);
                   unpaidArr[idx] += Math.max(amount - paid, 0);
@@ -267,7 +332,7 @@ export default function DashboardPage() {
             } catch (err) {
               // ignore per-customer failure
             }
-          })
+          }),
         );
 
         if (!mounted) return;
@@ -282,7 +347,11 @@ export default function DashboardPage() {
     };
   }, [timeBuckets, periodMonths, customers, billingMode]);
 
-  const [chartSeries, setChartSeries] = useState({ labels: [], paidArr: [], unpaidArr: [] });
+  const [chartSeries, setChartSeries] = useState({
+    labels: [],
+    paidArr: [],
+    unpaidArr: [],
+  });
 
   const chartOptions = useMemo(() => {
     return {
@@ -290,25 +359,42 @@ export default function DashboardPage() {
       interaction: { mode: "index", intersect: false },
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: "top", labels: { usePointStyle: true, boxWidth: 10 } },
+        legend: {
+          position: "top",
+          labels: { usePointStyle: true, boxWidth: 10 },
+        },
         title: { display: true, text: "Paid vs Unpaid — Monthly" },
         tooltip: {
           callbacks: {
             label: (context) => {
               const label = context.dataset.label || "";
-              const val = context.raw != null ? Number(context.raw).toFixed(2) : "0.00";
+              const val =
+                context.raw != null ? Number(context.raw).toFixed(2) : "0.00";
               return `${label}: ₹${val}`;
             },
           },
         },
         zoom: {
           pan: { enabled: true, mode: "x", modifierKey: "ctrl" },
-          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+          zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: "x",
+          },
         },
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0, minRotation: 0 } },
-        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(200,200,200,0.08)" }, ticks: { callback: (v) => `₹${Number(v).toFixed(0)}` } },
+        x: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { maxRotation: 0, minRotation: 0 },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: "rgba(200,200,200,0.08)" },
+          ticks: { callback: (v) => `₹${Number(v).toFixed(0)}` },
+        },
       },
       onClick: (evt, elements) => {
         if (!elements.length) {
@@ -326,14 +412,36 @@ export default function DashboardPage() {
   }, []);
 
   const dataForChart = useMemo(() => {
-    const labels = chartSeries.labels.length ? chartSeries.labels : chartData.labels;
-    const paid = chartSeries.paidArr.length ? chartSeries.paidArr : (chartData.datasets[0]?.data || []);
-    const unpaid = chartSeries.unpaidArr.length ? chartSeries.unpaidArr : (chartData.datasets[1]?.data || []);
+    const labels = chartSeries.labels.length
+      ? chartSeries.labels
+      : chartData.labels;
+    const paid = chartSeries.paidArr.length
+      ? chartSeries.paidArr
+      : chartData.datasets[0]?.data || [];
+    const unpaid = chartSeries.unpaidArr.length
+      ? chartSeries.unpaidArr
+      : chartData.datasets[1]?.data || [];
     return {
       labels,
       datasets: [
-        { label: "Paid", data: paid, backgroundColor: labels.map((_, i) => (barHighlight === i ? "rgba(34,197,94,1)" : "rgba(34,197,94,0.85)")), borderRadius: 6, stack: "stack1" },
-        { label: "Unpaid", data: unpaid, backgroundColor: labels.map((_, i) => (barHighlight === i ? "rgba(239,68,68,1)" : "rgba(239,68,68,0.85)")), borderRadius: 6, stack: "stack1" },
+        {
+          label: "Paid",
+          data: paid,
+          backgroundColor: labels.map((_, i) =>
+            barHighlight === i ? "rgba(34,197,94,1)" : "rgba(34,197,94,0.85)",
+          ),
+          borderRadius: 6,
+          stack: "stack1",
+        },
+        {
+          label: "Unpaid",
+          data: unpaid,
+          backgroundColor: labels.map((_, i) =>
+            barHighlight === i ? "rgba(239,68,68,1)" : "rgba(239,68,68,0.85)",
+          ),
+          borderRadius: 6,
+          stack: "stack1",
+        },
       ],
     };
   }, [chartSeries, chartData, barHighlight]);
@@ -342,7 +450,8 @@ export default function DashboardPage() {
     const chart = chartRef.current;
     try {
       if (chart && chart.resetZoom) chart.resetZoom();
-      if (chart && chart.chartInstance && chart.chartInstance.resetZoom) chart.chartInstance.resetZoom();
+      if (chart && chart.chartInstance && chart.chartInstance.resetZoom)
+        chart.chartInstance.resetZoom();
     } catch (e) {
       // ignore
     }
@@ -355,13 +464,29 @@ export default function DashboardPage() {
   };
 
   const handleOpenCustomer = (customerId) => {
-    navigate(`/entries?customerId=${customerId}&billingMode=${billingMode}`);
+    navigate(
+      `/dashboard/entries?customerId=${customerId}&billingMode=${billingMode}`,
+    );
+  };
+  const handleOpenEntry = (entry) => {
+    navigate(
+      `/dashboard/entries?customerId=${entry.customerId}&entryId=${entry.id}&billingMode=${billingMode}`,
+    );
   };
 
   const donutData = useMemo(() => {
     const paid = totals.paid || 0;
     const unpaid = totals.unpaid || 0;
-    return { labels: ["Paid", "Unpaid"], datasets: [{ data: [paid, unpaid], backgroundColor: ["#22c55e", "#ef4444"], hoverOffset: 6 }] };
+    return {
+      labels: ["Paid", "Unpaid"],
+      datasets: [
+        {
+          data: [paid, unpaid],
+          backgroundColor: ["#22c55e", "#ef4444"],
+          hoverOffset: 6,
+        },
+      ],
+    };
   }, [totals]);
 
   const refreshAll = async () => {
@@ -371,9 +496,12 @@ export default function DashboardPage() {
   };
 
   const displayedRecentEntries = useMemo(() => {
-    if (barHighlight == null || !chartSeries.labels?.length) return totals.recentEntries;
+    if (barHighlight == null || !chartSeries.labels?.length)
+      return totals.recentEntries;
     const bucketLabel = chartSeries.labels[barHighlight];
-    return totals.recentEntries.filter((r) => dayjs(r.entry_date).format("MMM YYYY") === bucketLabel);
+    return totals.recentEntries.filter(
+      (r) => dayjs(r.entry_date).format("MMM YYYY") === bucketLabel,
+    );
   }, [barHighlight, chartSeries.labels, totals.recentEntries]);
 
   return (
@@ -383,7 +511,12 @@ export default function DashboardPage() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 12, color: "#666" }}>Mode:</div>
-          <button className={`btn small ${billingMode === "luggage" ? "danger" : "ghost"}`} onClick={toggleBillingMode} title="Toggle billing mode (stored in localStorage)" style={{ padding: "6px 10px" }}>
+          <button
+            className={`btn small ${billingMode === "luggage" ? "danger" : "ghost"}`}
+            onClick={toggleBillingMode}
+            title="Toggle billing mode (stored in localStorage)"
+            style={{ padding: "6px 10px" }}
+          >
             {billingMode === "luggage" ? "Luggage (theme)" : "Farmer (default)"}
           </button>
         </div>
@@ -391,7 +524,11 @@ export default function DashboardPage() {
         <div className="controls-row">
           <div className="period-buttons">
             {PERIOD_OPTIONS.map((o) => (
-              <button key={o.label} className={`period-btn ${periodMonths === o.months ? "active" : ""}`} onClick={() => setPeriod(o.months)}>
+              <button
+                key={o.label}
+                className={`period-btn ${periodMonths === o.months ? "active" : ""}`}
+                onClick={() => setPeriod(o.months)}
+              >
                 {o.label}
               </button>
             ))}
@@ -404,7 +541,12 @@ export default function DashboardPage() {
           </div>
 
           <div className="search-area">
-            <input className="search-input" placeholder="🔍 search customers..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input
+              className="search-input"
+              placeholder="🔍 search customers..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
         </div>
       </div>
@@ -420,10 +562,21 @@ export default function DashboardPage() {
           <h3>Total Unpaid</h3>
           <div className="progress-container">
             <div className="progress-ring-outer">
-              <div className="progress-ring" style={{ background: `conic-gradient(var(--accent) ${Math.min(100, (totals.unpaid / (totals.total || 1)) * 100) * 3.6}deg, var(--bg) 0deg)` }} />
+              <div
+                className="progress-ring"
+                style={{
+                  background: `conic-gradient(var(--accent) ${Math.min(100, (totals.unpaid / (totals.total || 1)) * 100) * 3.6}deg, var(--bg) 0deg)`,
+                }}
+              />
               <div className="progress-center">
                 <div className="progress-text">₹{totals.unpaid.toFixed(2)}</div>
-                <div className={`trend ${trend.unpaidTrend}`}>{trend.unpaidTrend === "up" ? "↑" : trend.unpaidTrend === "down" ? "↓" : "→"}</div>
+                <div className={`trend ${trend.unpaidTrend}`}>
+                  {trend.unpaidTrend === "up"
+                    ? "↑"
+                    : trend.unpaidTrend === "down"
+                      ? "↓"
+                      : "→"}
+                </div>
               </div>
             </div>
           </div>
@@ -442,29 +595,44 @@ export default function DashboardPage() {
             <div className="card-header-compact">
               <h3>Payment Distribution</h3>
               <div className="card-actions">
-                <button className="btn ghost" onClick={() => {}}>Export</button>
+                <button className="btn ghost" onClick={() => {}}>
+                  Export
+                </button>
               </div>
             </div>
             <div className="donut-wrapper-compact">
               <div className="donut-chart-canvas">
-                <Doughnut data={donutData} options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }} />
+                <Doughnut
+                  data={donutData}
+                  options={{
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: "bottom" } },
+                  }}
+                />
               </div>
               <div className="donut-legend-compact">
                 <div className="legend-item">
-                  <span className="dot paid"></span> Paid <strong>₹{totals.paid.toFixed(2)}</strong>
+                  <span className="dot paid"></span> Paid{" "}
+                  <strong>₹{totals.paid.toFixed(2)}</strong>
                 </div>
                 <div className="legend-item">
-                  <span className="dot unpaid"></span> Unpaid <strong>₹{totals.unpaid.toFixed(2)}</strong>
+                  <span className="dot unpaid"></span> Unpaid{" "}
+                  <strong>₹{totals.unpaid.toFixed(2)}</strong>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="card analytics-card interactive" style={{ minHeight: 380 }}>
+          <div
+            className="card analytics-card interactive"
+            style={{ minHeight: 380 }}
+          >
             <div className="card-header-compact">
               <h3>Performance Analytics</h3>
               <div className="card-actions">
-                <div className="small-note">Zoom: wheel &amp; pinch, Pan: drag (hold Ctrl to pan)</div>
+                <div className="small-note">
+                  Zoom: wheel &amp; pinch, Pan: drag (hold Ctrl to pan)
+                </div>
               </div>
             </div>
             <div className="chart-area">
@@ -473,13 +641,27 @@ export default function DashboardPage() {
             <div className="chart-footer">
               <div className="legend-mini">
                 <span className="dot paid" /> Paid
-                <span className="dot unpaid" style={{ marginLeft: 12 }} /> Unpaid
+                <span className="dot unpaid" style={{ marginLeft: 12 }} />{" "}
+                Unpaid
               </div>
               <div className="chart-stats">
                 <div>
-                  Showing: <strong>{chartSeries.labels.length ? chartSeries.labels.length : (chartData.labels || []).length}</strong> months
+                  Showing:{" "}
+                  <strong>
+                    {chartSeries.labels.length
+                      ? chartSeries.labels.length
+                      : (chartData.labels || []).length}
+                  </strong>{" "}
+                  months
                 </div>
-                <div>Highlight: <strong>{barHighlight != null ? chartSeries.labels[barHighlight] : "—"}</strong></div>
+                <div>
+                  Highlight:{" "}
+                  <strong>
+                    {barHighlight != null
+                      ? chartSeries.labels[barHighlight]
+                      : "—"}
+                  </strong>
+                </div>
               </div>
             </div>
           </div>
@@ -498,10 +680,15 @@ export default function DashboardPage() {
                   <div className="list-item" key={c.id}>
                     <div>
                       <div className="item-name">{c.name}</div>
-                      <div className="item-sub">#{c.serial || "-"} • {c.phone || "N/A"}</div>
+                      <div className="item-sub">
+                        #{c.serial || "-"} • {c.phone || "N/A"}
+                      </div>
                     </div>
                     <div className="item-actions">
-                      <button className="btn ghost small" onClick={() => handleOpenCustomer(c.id)}>
+                      <button
+                        className="btn ghost small"
+                        onClick={() => handleOpenCustomer(c.id)}
+                      >
                         Open
                       </button>
                     </div>
@@ -513,7 +700,12 @@ export default function DashboardPage() {
 
           <div className="card">
             <div className="card-header">
-              <h3>Recent Entries {barHighlight != null ? `(Filtered: ${chartSeries.labels[barHighlight]})` : ""}</h3>
+              <h3>
+                Recent Entries{" "}
+                {barHighlight != null
+                  ? `(Filtered: ${chartSeries.labels[barHighlight]})`
+                  : ""}
+              </h3>
             </div>
             <div className="list small-list">
               {displayedRecentEntries.length === 0 ? (
@@ -523,10 +715,16 @@ export default function DashboardPage() {
                   <div className="list-item" key={i}>
                     <div>
                       <div className="item-name">{r.customer}</div>
-                      <div className="item-sub">{new Date(r.entry_date).toLocaleDateString()} • {r.kgs} kg • ₹{r.amount.toFixed(2)}</div>
+                      <div className="item-sub">
+                        {new Date(r.entry_date).toLocaleDateString()} • {r.kgs}{" "}
+                        kg • ₹{r.amount.toFixed(2)}
+                      </div>
                     </div>
                     <div className="item-actions">
-                      <button className="btn ghost small" onClick={() => handleOpenCustomer(r.customerId)}>
+                      <button
+                        className="btn ghost small"
+                        onClick={() => handleOpenEntry(r)}
+                      >
                         Open
                       </button>
                     </div>
